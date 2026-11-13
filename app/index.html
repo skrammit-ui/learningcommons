@@ -59,8 +59,15 @@ Mateo L.,72,55,80,77</pre>
           <span><input id="t-app" type="number" min="0" max="99" value="60"> %</span>
         </label>
       </div>
+      <fieldset class="taught-pick">
+        <legend>Clusters taught so far</legend>
+        <p class="muted small">Untick clusters you haven't taught yet. They're left out of grouping and next steps, and shown greyed out in the heatmap. <span id="taught-count"></span> ·
+          <button id="taught-all" class="linkbtn" type="button">All</button> ·
+          <button id="taught-none" class="linkbtn" type="button">None</button></p>
+        <div id="taught" class="taught-list"></div>
+      </fieldset>
       <fieldset class="bands-pick">
-        <legend>Group these students (by overall score across all clusters)</legend>
+        <legend>Group these students (by overall score on taught clusters)</legend>
         <label class="check small"><input id="inc-need" type="checkbox" checked> <span class="band need">Needs support</span></label>
         <label class="check small"><input id="inc-app" type="checkbox" checked> <span class="band app">Approaching</span></label>
         <label class="check small"><input id="inc-prof" type="checkbox" checked> <span class="band prof">Proficient</span></label>

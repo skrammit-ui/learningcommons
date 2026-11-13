@@ -7,7 +7,7 @@
 
   const KG = window.KG_DATA;
   const GRADE_ORDER = ["K", "1", "2", "3", "4", "5", "6", "7", "8"];
-  const state = { data: null, result: null, overrides: {}, sources: {} };
+  const state = { data: null, result: null, overrides: {}, sources: {}, untaught: new Set() };
 
   // ---------- helpers ----------
   const $ = (sel) => document.querySelector(sel);
@@ -242,7 +242,8 @@
         ? `${missing} cluster result(s) are blank or had no questions for that student. They're shown as "—" and filled with the class average for grouping only.`
         : `${missing} blank score(s). Blanks are filled with the class average for grouping only and shown as "—".` });
     }
-    return { students: kept, notTested, clusters, hasMeta, hasItems: !!hasItems, notes };
+    // allClusters: everything in the file. clusters: the ones the teacher marked as taught (set in analyze).
+    return { students: kept, notTested, clusters, allClusters: clusters.slice(), hasMeta, hasItems: !!hasItems, notes };
   }
 
   // Kept for tests and simple callers: CSV text rows -> finished class data.
@@ -590,11 +591,17 @@
     const data = state.data;
     const t = thresholds();
     const inc = includedBands();
+    // Only clusters the teacher has taught drive grouping, labels, overall scores and next steps.
+    data.clusters = data.allClusters.filter((c) => !state.untaught.has(c));
+    if (!data.clusters.length) {
+      state.result = { groups: [], classMean: {}, t, pool: [], excluded: [], noClusters: true };
+      return;
+    }
     data.students.forEach((s) => { s.overall = studentOverall(s, data.clusters); s.overallBand = band(s.overall, t); });
     const pool = data.students.filter((s) => inc.has(s.overallBand));
     const excluded = data.students.filter((s) => !inc.has(s.overallBand));
     const classMean = {};
-    data.clusters.forEach((c) => { classMean[c] = mean(pool.map((s) => s.scores[c]).filter(Number.isFinite)); });
+    data.allClusters.forEach((c) => { classMean[c] = mean(pool.map((s) => s.scores[c]).filter(Number.isFinite)); });
     if (pool.length < 2) {
       state.result = { groups: [], classMean, t, pool, excluded, tooFew: true };
       return;
@@ -646,8 +653,10 @@
     // "Broad" only when needs span nearly every domain tested; otherwise name the weak domains.
     const allDoms = new Set(clusters.map((c) => clusterInfo(c).dom));
     const needDoms = new Set(g.needs.map((c) => clusterInfo(c).dom));
-    if (g.overall < thresholds().app && needDoms.size >= Math.max(2, Math.ceil(allDoms.size * 0.75))) return "Broad foundational support";
-    const focus = (g.needs.length ? g.needs : g.approaching).slice(0, 2);
+    if (allDoms.size >= 3 && g.overall < thresholds().app && needDoms.size >= Math.ceil(allDoms.size * 0.75)) return "Broad foundational support";
+    const focus = (g.priorities?.length ? g.priorities.map((p) => p.c) : g.needs.length ? g.needs : g.approaching).slice(0, 2);
+    // With only a few clusters taught (or one domain), domain names don't tell groups apart; name the clusters.
+    if (clusters.length <= 5 || allDoms.size < 3) return `Focus: ${focus.join(" & ")}`;
     const doms = [...new Set(focus.map((c) => domainName(c)).filter(Boolean))];
     return `Focus: ${doms.length ? doms.join(" & ") : focus.join(", ")}`;
   }
@@ -750,26 +759,31 @@
   function renderSummary() {
     const { groups } = state.result;
     const d = state.data;
-    const grades = [...new Set(d.clusters.map((c) => clusterInfo(c).g))].sort((a, b) => gradeIdx(a) - gradeIdx(b));
+    const grades = [...new Set(d.allClusters.map((c) => clusterInfo(c).g))].sort((a, b) => gradeIdx(a) - gradeIdx(b));
     const classAvg = mean(d.clusters.map((c) => state.result.classMean[c]).filter(Number.isFinite));
     $("#summary").innerHTML = [
       [state.result.pool.length, "students grouped"],
       ...(state.result.excluded.length ? [[state.result.excluded.length, "not in this grouping"]] : []),
       ...(d.notTested.length ? [[d.notTested.length, "set aside (all 0%)"]] : []),
-      [d.clusters.length, `clusters (${grades.map(gradeName).join(", ")})`],
+      [d.clusters.length < d.allClusters.length ? `${d.clusters.length} of ${d.allClusters.length}` : d.clusters.length,
+        `clusters${d.clusters.length < d.allClusters.length ? " taught so far" : ""} (${grades.map(gradeName).join(", ")})`],
       [groups.length, "groups"],
       [`${round(classAvg)}%`, "average of grouped students"],
     ].map(([v, l]) => `<div class="stat"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`).join("");
   }
 
   function renderGroups() {
-    const { groups, classMean, t, excluded, tooFew } = state.result;
+    const { groups, classMean, t, excluded, tooFew, noClusters } = state.result;
+    if (noClusters) {
+      $("#tab-groups").innerHTML = `<p class="msg warn">No clusters are marked as taught, so there's nothing to group on. Tick at least one cluster under "Clusters taught so far" above.</p>`;
+      return;
+    }
     const opts = (cur) => groups.map((g) => `<option value="${g.id}"${g.id === cur ? " selected" : ""}>Group ${g.num}</option>`).join("");
     const BAND_RANGE = { need: `below ${t.app}%`, app: `${t.app}–${t.prof - 1}%`, prof: `${t.prof}%+` };
     const chosen = [...includedBands()].map((b) => BAND_LABEL[b]).join(" + ");
     const intro = tooFew
       ? `<p class="msg warn">Fewer than two students are ${esc(chosen || "selected")} overall, so there's nothing to group. Change "Group these students" above.</p>`
-      : excluded.length ? `<p class="small muted">Grouping ${esc(chosen)} students only, by each student's overall score across all clusters.</p>` : "";
+      : excluded.length ? `<p class="small muted">Grouping ${esc(chosen)} students only, by each student's overall score on the taught clusters.</p>` : "";
     const excludedCard = excluded.length ? `<article class="group aside">
         <div class="group-head"><h3>Not in this grouping</h3><span class="muted small">${excluded.length} student(s)</span></div>
         <p class="small">Left out by the "Group these students" setting. Overall score shown for each.</p>
@@ -838,20 +852,22 @@
   function renderHeatmap() {
     const { groups, t, classMean } = state.result;
     const d = state.data;
-    const cl = d.clusters;
+    const cl = d.allClusters;
+    const taught = new Set(d.clusters);
     const extra = [d.hasMeta.level && ["level", "Level"], d.hasMeta.scale && ["scale", "Scale score"]].filter(Boolean);
     const ncol = cl.length + 1 + extra.length;
-    const head = `<tr><th scope="col">Student</th>${extra.map(([, l]) => `<th scope="col">${l}</th>`).join("")}${cl.map((c) => `<th scope="col" title="${esc(clusterInfo(c).d)}">${esc(c)}</th>`).join("")}</tr>`;
+    const head = `<tr><th scope="col">Student</th>${extra.map(([, l]) => `<th scope="col">${l}</th>`).join("")}${cl.map((c) => `<th scope="col" class="${taught.has(c) ? "" : "untaught"}" title="${esc(clusterInfo(c).d)}">${esc(c)}${taught.has(c) ? "" : `<span class="sub">not yet taught</span>`}</th>`).join("")}</tr>`;
     const row = (m) => `<tr><td>${esc(m.name)}</td>${extra.map(([k]) => `<td>${esc(m.meta?.[k] || "")}</td>`).join("")}${cl.map((c) => {
       const v = m.scores[c];
       const ct = counts(m, c);
       if (m.items && m.items[c] === 0) return `<td class="none" title="No questions on this cluster">n/a</td>`;
-      return `<td class="${band(v, t)}"${ct ? ` title="${ct.k} of ${ct.n} questions correct"` : ""}>${Number.isFinite(v) ? round(v) : "—"}${ct ? `<span class="frac">${ct.k}/${ct.n}</span>` : ""}</td>`;
+      const cls = taught.has(c) ? band(v, t) : "untaught";
+      return `<td class="${cls}"${ct ? ` title="${ct.k} of ${ct.n} questions correct"` : ""}>${Number.isFinite(v) ? round(v) : "—"}${ct ? `<span class="frac">${ct.k}/${ct.n}</span>` : ""}</td>`;
     }).join("")}</tr>`;
     const body = groups.map((g) => `<tr class="grp"><td colspan="${ncol}">Group ${g.num}: ${esc(g.label)}</td></tr>` + g.members.map(row).join("")).join("") +
       (state.result.excluded.length ? `<tr class="grp"><td colspan="${ncol}">Not in this grouping</td></tr>` + state.result.excluded.map(row).join("") : "") +
       (d.notTested.length ? `<tr class="grp"><td colspan="${ncol}">Set aside: 0% on every cluster</td></tr>` + d.notTested.map(row).join("") : "");
-    const avg = `<tr class="grp"><td>Average (grouped)</td>${extra.map(() => "<td></td>").join("")}${cl.map((c) => `<td class="${band(classMean[c], t)}">${round(classMean[c])}</td>`).join("")}</tr>`;
+    const avg = `<tr class="grp"><td>Average (grouped)</td>${extra.map(() => "<td></td>").join("")}${cl.map((c) => `<td class="${taught.has(c) ? band(classMean[c], t) : "untaught"}">${round(classMean[c])}</td>`).join("")}</tr>`;
     $("#tab-heatmap").innerHTML = `<div class="legend">${["prof", "app", "need"].map((b) => `<span class="band ${b}">${BAND_LABEL[b]}</span>`).join("")}<span class="muted">Cells show percent scores${d.hasItems ? ", with questions correct out of questions seen below" : ""}. "—" means no score${d.hasItems ? "; n/a means the student saw no questions on that cluster" : ""}.</span></div>
       <div class="table-wrap"><table class="heat"><thead>${head}</thead><tbody>${body}${avg}</tbody></table></div>`;
   }
@@ -860,15 +876,19 @@
     const { t, classMean, groups } = state.result;
     const groupOf = {};
     groups.forEach((g) => g.members.forEach((m) => { groupOf[m.name] = g.num; }));
-    $("#tab-clusters").innerHTML = `<p class="small muted">Use this view for quick skill-based pull-outs on a single cluster, regardless of overall group.</p>` +
-      state.data.clusters.slice().sort((a, b) => classMean[a] - classMean[b]).map((c) => {
+    const d = state.data;
+    const untaught = d.allClusters.filter((c) => !d.clusters.includes(c));
+    const order = d.clusters.slice().sort((a, b) => classMean[a] - classMean[b]).concat(untaught);
+    $("#tab-clusters").innerHTML = `<p class="small muted">Use this view for quick skill-based pull-outs on a single cluster, regardless of overall group.${untaught.length ? " Clusters not yet taught are listed last." : ""}</p>` +
+      order.map((c) => {
+        const isUntaught = untaught.includes(c);
         const bands = { prof: [], app: [], need: [], none: [] };
         state.data.students.forEach((s) => bands[band(s.scores[c], t)].push(s));
         const n = state.data.students.length;
         const pct = (b) => (bands[b].length / n) * 100;
         const list = (b) => bands[b].sort((x, y) => x.scores[c] - y.scores[c]).map((s) => { const ct = counts(s, c); return `${esc(s.name)} <span class="muted">${ct ? `${ct.k}/${ct.n}` : round(s.scores[c])}${groupOf[s.name] ? ` · G${groupOf[s.name]}` : ""}</span>`; }).join("<br>") || "<span class=\"muted\">None</span>";
-        return `<div class="cl-card">
-          <div class="group-head"><h3>${esc(c)}</h3><span class="band ${band(classMean[c], t)}">Class average ${round(classMean[c])}%</span></div>
+        return `<div class="cl-card${isUntaught ? " untaught" : ""}">
+          <div class="group-head"><h3>${esc(c)}${isUntaught ? ` <span class="band none">Not yet taught</span>` : ""}</h3><span class="band ${isUntaught ? "none" : band(classMean[c], t)}">Class average ${round(classMean[c])}%</span></div>
           <p class="small">${esc(clusterInfo(c).d)}</p>
           <div class="bar" aria-hidden="true"><span class="need" style="width:${pct("need")}%"></span><span class="app" style="width:${pct("app")}%"></span><span class="prof" style="width:${pct("prof")}%"></span></div>
           <div class="bands">
@@ -881,9 +901,26 @@
       }).join("");
   }
 
+  // Checkbox list of the file's clusters, so teachers can leave out what they haven't taught yet.
+  function renderTaught() {
+    const d = state.data;
+    const box = $("#taught");
+    const key = d.allClusters.join("|");
+    if (box.dataset.key !== key) {
+      box.dataset.key = key;
+      box.innerHTML = d.allClusters.map((c) => `<label class="taught-item">
+          <input type="checkbox" data-cluster="${esc(c)}"${state.untaught.has(c) ? "" : " checked"}>
+          <span><strong>${esc(c)}</strong> <span class="muted">${esc(clusterInfo(c).d)}</span></span>
+        </label>`).join("");
+    }
+    const n = d.allClusters.length - d.allClusters.filter((c) => state.untaught.has(c)).length;
+    $("#taught-count").textContent = `${n} of ${d.allClusters.length} ticked`;
+  }
+
   function run(resetOverrides) {
     if (!state.data) return;
     if (resetOverrides) state.overrides = {};
+    renderTaught();
     analyze();
     renderSummary();
     renderGroups();
@@ -946,7 +983,7 @@
 
   function exportCSV() {
     const { groups } = state.result;
-    const cl = state.data.clusters;
+    const cl = state.data.allClusters;
     const q = (s) => (/[",\n]/.test(s) ? `"${String(s).replace(/"/g, '""')}"` : s);
     const lines = [["Student", "Group", "Group focus", ...cl].map(q).join(",")];
     const line = (m, grp, label) => lines.push([m.name, grp, label, ...cl.map((c) => (Number.isFinite(m.scores[c]) ? Math.round(m.scores[c]) : ""))].map(q).join(","));
@@ -985,6 +1022,18 @@
     });
     $("#k").addEventListener("change", () => run(true));
     $("#zero-aside").addEventListener("change", () => rebuild(false));
+    $("#taught").addEventListener("change", (e) => {
+      const c = e.target.dataset?.cluster;
+      if (!c) return;
+      if (e.target.checked) state.untaught.delete(c); else state.untaught.add(c);
+      run(true);
+    });
+    ["all", "none"].forEach((w) => $(`#taught-${w}`).addEventListener("click", () => {
+      if (!state.data) return;
+      state.untaught = new Set(w === "all" ? [] : state.data.allClusters);
+      $("#taught").querySelectorAll("input[data-cluster]").forEach((el) => { el.checked = w === "all"; });
+      run(true);
+    }));
     ["#t-prof", "#t-app", "#inc-need", "#inc-app", "#inc-prof"].forEach((s) => $(s).addEventListener("change", () => run(false)));
     $("#export")?.addEventListener("click", exportCSV);
     $("#print")?.addEventListener("click", () => window.print());

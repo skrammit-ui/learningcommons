@@ -99,6 +99,15 @@ pre { background: var(--surface-2); padding: 10px 12px; border-radius: 8px; over
 td .frac { display: block; font-size: .7rem; opacity: .8; font-variant-numeric: tabular-nums; }
 table.heat td { font-variant-numeric: tabular-nums; }
 .linkbtn { font: inherit; background: none; border: none; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; font-weight: 600; }
+.taught-pick { border: none; padding: 0; margin: 18px 0 0; min-width: 0; }
+.taught-pick legend { font-weight: 600; font-size: .9rem; padding: 0; }
+.taught-pick p { margin: 4px 0 8px; }
+.taught-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 16px; }
+.taught-item { display: flex; gap: 8px; align-items: flex-start; font-size: .85rem; line-height: 1.35; min-width: 0; }
+.taught-item input { margin-top: 2px; }
+th.untaught, td.untaught { color: var(--muted); background: var(--none-bg); opacity: .75; }
+th .sub { display: block; font-weight: 400; font-size: .7rem; }
+.cl-card.untaught { opacity: .7; }
 .bands-pick { border: none; padding: 0; margin: 16px 0 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
 .bands-pick legend { font-weight: 600; font-size: .9rem; padding: 0; margin-bottom: 6px; }
 .bands-pick .check { margin-top: 0; }
