@@ -917,6 +917,24 @@
     $("#taught-count").textContent = `${n} of ${d.allClusters.length} ticked`;
   }
 
+  function showSettings(on) {
+    $("#settings-body").hidden = !on;
+    $("#settings-empty").hidden = on;
+  }
+
+  // Confirm that a settings change regrouped the class.
+  let flashTimer = null;
+  function flashUpdated() {
+    const el = $("#updated");
+    const r = state.result;
+    const time = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    el.textContent = r.noClusters || r.tooFew ? `Updated ${time}: no groups with these settings`
+      : `✓ Groups updated ${time}: ${r.groups.length} groups, ${r.pool.length} students`;
+    el.classList.add("on");
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => el.classList.remove("on"), 1500);
+  }
+
   function run(resetOverrides) {
     if (!state.data) return;
     if (resetOverrides) state.overrides = {};
@@ -926,7 +944,8 @@
     renderGroups();
     renderHeatmap();
     renderClusters();
-    $("#settings").hidden = false;
+    showSettings(true);
+    flashUpdated();
     $("#results").hidden = false;
   }
 
@@ -946,7 +965,7 @@
       if (scroll) $("#results").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
       state.data = null;
-      $("#settings").hidden = true;
+      showSettings(false);
       $("#results").hidden = true;
       renderMessages([...extraNotes, { type: "error", text: `${esc(e.message)}${restart}` }]);
     }
@@ -1013,7 +1032,7 @@
     $("#messages").addEventListener("click", (e) => {
       if (e.target.id !== "clear") return;
       state.sources = {}; state.data = null;
-      $("#settings").hidden = true; $("#results").hidden = true;
+      showSettings(false); $("#results").hidden = true;
       renderMessages([]);
     });
     $("#sample").addEventListener("click", () => load(window.SAMPLE_CSV, "sample Grade 6 class (fictional PRoPL Interim 1)"));
@@ -1022,6 +1041,10 @@
     });
     $("#k").addEventListener("change", () => run(true));
     $("#zero-aside").addEventListener("change", () => rebuild(false));
+    $("#regroup").addEventListener("click", () => {
+      run(true);
+      $("#results").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     $("#taught").addEventListener("change", (e) => {
       const c = e.target.dataset?.cluster;
       if (!c) return;

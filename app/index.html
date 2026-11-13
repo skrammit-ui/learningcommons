@@ -43,8 +43,10 @@ Mateo L.,72,55,80,77</pre>
       <div id="messages" class="messages" aria-live="polite"></div>
     </section>
 
-    <section id="settings" class="panel" hidden aria-labelledby="settings-h">
+    <section id="settings" class="panel" aria-labelledby="settings-h">
       <h2 id="settings-h">2. Adjust grouping</h2>
+      <p id="settings-empty" class="muted small">Load your class data above (or the sample) and these settings will appear here. Groups update as soon as you change one.</p>
+      <div id="settings-body" hidden>
       <div class="settings-grid">
         <label>Number of groups
           <select id="k">
@@ -73,7 +75,12 @@ Mateo L.,72,55,80,77</pre>
         <label class="check small"><input id="inc-prof" type="checkbox" checked> <span class="band prof">Proficient</span></label>
       </fieldset>
       <label class="check small"><input id="zero-aside" type="checkbox" checked> Set aside students who scored 0% on every cluster (often a test that wasn't completed)</label>
-      <p class="muted small">Groups are formed from each student's full pattern of cluster scores, so students who struggle with the same clusters land together.</p>
+      <p class="muted small">Groups are formed from each student's full pattern of cluster scores, so students who struggle with the same clusters land together. Changes apply right away.</p>
+      <div class="settings-actions">
+        <button id="regroup" class="btn secondary" type="button">Regroup and show groups</button>
+        <span id="updated" class="updated" role="status" aria-live="polite"></span>
+      </div>
+      </div>
     </section>
 
     <section id="results" hidden>
