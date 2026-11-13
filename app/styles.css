@@ -204,3 +204,9 @@ td.none { color: var(--muted); }
   details > * { display: block; }
 }
 .ahead-h { margin-top: 20px; }
+.quiz { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.quiz-list { padding-left: 1.1em; margin: 6px 0 10px; }
+.quiz-list > li { margin-bottom: 8px; }
+.quiz-list ul { padding-left: 1.1em; margin: 4px 0; font-size: .92rem; }
+.copy-status { margin-left: 8px; }
+.copy-fallback { display: block; width: 100%; margin-top: 8px; font: .85rem/1.4 ui-monospace, Menlo, monospace; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }

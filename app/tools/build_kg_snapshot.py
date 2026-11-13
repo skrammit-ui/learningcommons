@@ -26,6 +26,9 @@ CODE_RE = re.compile(r"^(K|[1-8])\.[A-Z]+\.[A-Z]\.\d+")
 CLUSTER_RE = re.compile(r"^(K|[1-8])\.[A-Z]+\.[A-Z]$")
 DOMAIN_RE = re.compile(r"^(K|[1-8])\.[A-Z]+$")
 MAX_LESSONS = 6
+MAX_COOLDOWNS = 4
+MAX_CHECKPOINTS = 3
+IM_COURSE_RE = re.compile(r"^im360:(K|[1-8])$", re.I)  # grade courses only (no accelerated)
 
 
 def parse_list(value):
@@ -94,6 +97,7 @@ def main():
     lcs = {}           # node id -> props (learning components)
     lessons = {}       # node id -> props (IM lessons)
     groupings = {}     # node id -> props (IM units / sections)
+    assessments = {}   # node id -> props (IM cool-downs, checkpoints, unit assessments)
     attributions = set()
 
     with open(args.nodes) as f:
@@ -108,10 +112,13 @@ def main():
                 if p.get("academicSubject") == "Mathematics":
                     lcs[d["identifier"]] = p
             elif label == "Lesson":
-                if str(p.get("courseCode", "")).startswith("im360:"):
+                if IM_COURSE_RE.match(str(p.get("courseCode", ""))):
                     lessons[d["identifier"]] = p
             elif label == "LessonGrouping":
                 groupings[d["identifier"]] = p
+            elif label == "Assessment":
+                if IM_COURSE_RE.match(str(p.get("courseCode", ""))):
+                    assessments[d["identifier"]] = p
 
     domains, clusters, standards, alt_codes = {}, {}, {}, {}
     id_to_std = {}  # CCSS node id -> standard code (components roll up)
@@ -154,7 +161,9 @@ def main():
 
     lc_seen = defaultdict(dict)
     lesson_to_std = defaultdict(set)
-    lesson_parent = {}
+    cooldown_to_std = defaultdict(set)
+    section_to_std = defaultdict(set)
+    parent = {}  # lesson / assessment / grouping -> containing lesson or grouping
     with open(args.relationships) as f:
         for line in f:
             d = json.loads(line)
@@ -185,21 +194,38 @@ def main():
                 if a != b and a in standards and b in standards:
                     standards[a]["rel"].add(b)
                     standards[b]["rel"].add(a)
-            elif lab == "hasEducationalAlignment" and s in lessons and t in id_to_std:
-                lesson_to_std[s].add(id_to_std[t])
-            elif lab == "hasPart" and t in lessons and s in groupings:
-                lesson_parent[t] = s
+            elif lab == "hasEducationalAlignment" and t in id_to_std:
+                if s in lessons:
+                    lesson_to_std[s].add(id_to_std[t])
+                elif s in assessments and assessments[s].get("curriculumLabel") == "Cool-down":
+                    cooldown_to_std[s].add(id_to_std[t])
+                elif s in groupings and groupings[s].get("curriculumLabel") == "Section":
+                    section_to_std[s].add(id_to_std[t])
+            elif lab == "hasPart" and (t in lessons or t in assessments or t in groupings) and (s in lessons or s in groupings):
+                parent[t] = s
 
-    def unit_name(lesson_id):
-        gid = lesson_parent.get(lesson_id)
-        names = []
-        seen = set()
-        while gid and gid in groupings and gid not in seen:
-            seen.add(gid)
-            g = groupings[gid]
-            names.append(g.get("name", ""))
-            gid = lesson_parent.get(gid)
-        return names[0] if names else ""
+    def where(node_id):
+        """Walk up to the containing lesson, section and unit."""
+        out, seen, nid = {}, set(), parent.get(node_id)
+        while nid and nid not in seen:
+            seen.add(nid)
+            if nid in lessons:
+                out.setdefault("lesson", lessons[nid])
+            elif nid in groupings:
+                kind = groupings[nid].get("curriculumLabel")
+                if kind in ("Section", "Unit"):
+                    out.setdefault(kind.lower(), groupings[nid])
+            nid = parent.get(nid)
+        return out
+
+    def unit_label(w):
+        u = w.get("unit")
+        if not u:
+            return ""
+        return f"{u.get('ordinalName', '')}: {u.get('name', '')}".strip(": ")
+
+    def grade_of(p):
+        return str(p.get("courseCode", "")).split(":")[-1].upper()
 
     for lid, codes in lesson_to_std.items():
         p = lessons[lid]
@@ -209,17 +235,54 @@ def main():
             "n": p.get("name", ""),
             "o": p.get("ordinalName", ""),
             "g": grade,
-            "u": unit_name(lid),
+            "u": unit_label(where(lid)),
         }
         for sc in codes:
             if sc in standards:
                 standards[sc]["les"].append(entry)
+
+    # Cool-downs: the short end-of-lesson check, aligned to standards directly.
+    for aid, codes in cooldown_to_std.items():
+        p = assessments[aid]
+        w = where(aid)
+        lesson = w.get("lesson", {})
+        entry = {
+            "n": p.get("name", "").strip(),
+            "l": f"{lesson.get('ordinalName', '')}: {lesson.get('name', '')}".strip(": "),
+            "u": unit_label(w),
+            "g": grade_of(p),
+        }
+        for sc in codes:
+            if sc in standards:
+                standards[sc].setdefault("cd", []).append(entry)
+
+    # Section checkpoints: aligned through their section's standards.
+    for aid, p in assessments.items():
+        label = p.get("curriculumLabel") or p.get("name") or ""
+        if "Checkpoint" not in label:
+            continue
+        sec = parent.get(aid)
+        if sec not in section_to_std:
+            continue
+        w = where(aid)
+        entry = {"n": label, "s": groupings[sec].get("name", ""), "u": unit_label(w), "g": grade_of(p)}
+        for sc in section_to_std[sec]:
+            if sc in standards:
+                standards[sc].setdefault("ck", []).append(entry)
 
     for sc, st in standards.items():
         st["lc"] = list(lc_seen[sc].values())
         # Prefer lessons from the standard's own grade, then keep a few.
         st["les"].sort(key=lambda e: (e["g"] != st["g"], e["g"], e["u"], e["o"]))
         st["les"] = st["les"][:MAX_LESSONS]
+        for key, cap in (("cd", MAX_COOLDOWNS), ("ck", MAX_CHECKPOINTS)):
+            items = st.get(key, [])
+            uniq = list({json.dumps(e, sort_keys=True): e for e in items}.values())
+            uniq.sort(key=lambda e: (e["g"] != st["g"], e["g"], e["u"], e.get("l", e.get("s", ""))))
+            if uniq:
+                st[key] = uniq[:cap]
+            else:
+                st.pop(key, None)
         for k in ("pre", "next", "rel"):
             st[k] = sorted(st[k])
         if st["cl"] in clusters:
@@ -257,6 +320,9 @@ def main():
     n_lc = sum(len(s["lc"]) for s in standards.values())
     n_pre = sum(len(s["pre"]) for s in standards.values())
     n_les = sum(1 for s in standards.values() if s["les"])
+    n_cd = sum(1 for s in standards.values() if s.get("cd"))
+    n_ck = sum(1 for s in standards.values() if s.get("ck"))
+    print(f"standards_with_cooldowns={n_cd} standards_with_checkpoints={n_ck}")
     print(f"clusters={len(clusters)} standards={len(standards)} learning_components={n_lc} "
           f"prereq_links={n_pre} standards_with_lessons={n_les}")
     print(f"wrote {os.path.abspath(args.out)} ({os.path.getsize(args.out)//1024} KB)")

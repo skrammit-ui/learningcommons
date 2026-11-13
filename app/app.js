@@ -625,6 +625,63 @@
   }
   const lessonText = (l) => `IM 360 ${gradeName(l.g)}${l.u ? `, ${l.u}` : ""}: ${l.o ? `${l.o} – ` : ""}${l.n}`;
 
+  // Follow-up quiz for a group: for each priority cluster, up to 2 IM v.360 Cool-downs (spread across the
+  // cluster's standards, same grade first) and the Section Checkpoint that covers the most of its standards.
+  function quizPlan(g) {
+    const plan = [];
+    g.priorities.slice(0, 3).forEach(({ c }) => {
+      const info = clusterInfo(c);
+      const byStd = info.s.map((s) => {
+        const all = (stdInfo(s).cd || []).map((e) => ({ ...e, std: s }));
+        return all.filter((e) => e.g === info.g).concat(all.filter((e) => e.g !== info.g));
+      });
+      const cds = [], seen = new Set();
+      for (let i = 0; cds.length < 2 && byStd.some((l) => l[i]); i++) {
+        byStd.forEach((l) => {
+          const e = l[i];
+          if (e && cds.length < 2 && !seen.has(e.n + e.l)) { seen.add(e.n + e.l); cds.push(e); }
+        });
+      }
+      const cks = {};
+      info.s.forEach((s) => (stdInfo(s).ck || []).forEach((e) => {
+        const k = `${e.g}|${e.u}|${e.n}`;
+        (cks[k] ||= { ...e, stds: [] }).stds.push(s);
+      }));
+      const ck = Object.values(cks).sort((a, b) => (b.g === info.g) - (a.g === info.g) || b.stds.length - a.stds.length)[0];
+      if (cds.length || ck) plan.push({ c, cds, ck });
+    });
+    return plan;
+  }
+  const cooldownText = (e) => `Cool-down "${e.n}": IM 360 ${gradeName(e.g)}, ${e.u}, ${e.l}`;
+  const checkpointText = (e) => `${e.n} (${e.s}): IM 360 ${gradeName(e.g)}, ${e.u}`;
+  function quizPlainText(g) {
+    const lines = [`Follow-up quiz: Group ${g.num} (${g.label})`, "IM v.360 items, free at accessim.org", ""];
+    g.quiz.forEach((q) => {
+      lines.push(`${q.c}: ${clusterInfo(q.c).d}`);
+      q.cds.forEach((e) => lines.push(`  - ${cooldownText(e)} [${e.std}]`));
+      if (q.ck) lines.push(`  - ${checkpointText(q.ck)} [${q.ck.stds.join(", ")}]`);
+      lines.push("");
+    });
+    lines.push(`Students: ${g.members.map((m) => m.name).join("; ")}`);
+    return lines.join("\n");
+  }
+  function renderQuiz(g) {
+    if (!g.quiz.length) return "";
+    const nCd = g.quiz.reduce((n, q) => n + q.cds.length, 0);
+    const nCk = g.quiz.filter((q) => q.ck).length;
+    return `<div class="quiz">
+      <p class="kicker">Follow-up quiz before the next interim</p>
+      <p class="small muted">Recheck this group's priority clusters with Illustrative Mathematics items. Find each one free on
+        <a href="https://accessim.org/" target="_blank" rel="noopener">AccessIM</a> by grade, unit and lesson.
+        ${nCd} Cool-down${nCd === 1 ? "" : "s"} (about 5 minutes each)${nCk ? ` and ${nCk} Section Checkpoint${nCk === 1 ? "" : "s"}` : ""}.</p>
+      <ul class="quiz-list">${g.quiz.map((q) => `<li><strong>${esc(q.c)}</strong> <span class="muted">${esc(clusterInfo(q.c).d)}</span>
+        <ul>${q.cds.map((e) => `<li>${esc(cooldownText(e))} <span class="muted">(${esc(e.std)})</span></li>`).join("")}
+          ${q.ck ? `<li>${esc(checkpointText(q.ck))} <span class="muted">(covers ${q.ck.stds.map(esc).join(", ")})</span></li>` : ""}</ul></li>`).join("")}</ul>
+      <button class="btn ghost copyquiz" type="button" data-group="${g.id}">Copy quiz list</button>
+      <span class="small muted copy-status" aria-live="polite"></span>
+    </div>`;
+  }
+
   // ---------- analysis ----------
   // A student's overall result: pooled questions when counts are known, else the mean of cluster percents.
   function studentOverall(s, clusters) {
@@ -694,6 +751,7 @@
         g.label += `, starting with ${g.priorities[0]?.c || g.needs[0]}`;
       }
       g.steps = nextSteps(g, t);
+      g.quiz = quizPlan(g);
     });
     state.result = { groups, classMean, t, pool, excluded };
   }
@@ -875,12 +933,27 @@
             ${insightClusters.map((c) => clusterDetails(c)).join("")}
           </div>
         </div>
+        ${renderQuiz(g)}
       </article>`;
     }).join("") + (state.data.notTested.length ? `<article class="group aside">
         <div class="group-head"><h3>Check these students</h3><span class="muted small">${state.data.notTested.length} student(s) · not grouped</span></div>
         <p class="small">These students scored 0% on every cluster. Check how the test went for them (not submitted, not completed, or a real result) before planning. To group them anyway, untick "Set aside students who scored 0%" above to include them.</p>
         <div class="members">${state.data.notTested.map((m) => `<span class="chip"${metaTitle(m)}>${esc(m.name)}</span>`).join("")}</div>
       </article>` : "") + excludedCard;
+    $("#tab-groups").querySelectorAll(".copyquiz").forEach((btn) => btn.addEventListener("click", () => {
+      const g = groups.find((x) => String(x.id) === btn.dataset.group);
+      const status = btn.nextElementSibling;
+      const text = quizPlainText(g);
+      const fallback = () => {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.rows = 8; ta.className = "copy-fallback"; ta.readOnly = true;
+        btn.parentElement.appendChild(ta); ta.focus(); ta.select();
+        status.textContent = "Copying isn't allowed here. The list is selected below; copy it with Ctrl+C or Cmd+C.";
+      };
+      try {
+        navigator.clipboard.writeText(text).then(() => { status.textContent = "Copied."; }, fallback);
+      } catch { fallback(); }
+    }));
     $("#tab-groups").querySelectorAll("select[data-student]").forEach((sel) => sel.addEventListener("change", () => {
       state.overrides[sel.dataset.student] = Number(sel.value);
       run(false);

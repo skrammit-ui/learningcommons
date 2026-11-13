@@ -52,6 +52,16 @@ Mateo L.,72,55,80,77
   - Prerequisites come from the Coherence Map's "builds towards" links.
   - Learning components and IM lesson alignments come from the Knowledge Graph.
 
+### Follow-up quiz
+
+Each group card ends with a **follow-up quiz** for rechecking the group's priority clusters before the next interim. It's built from Illustrative Mathematics v.360 items listed in the Knowledge Graph:
+- for each priority cluster, up to 2 **Cool-downs** (the short end-of-lesson check), spread across the cluster's standards;
+- the **Section Checkpoint** whose section covers the most of the cluster's standards.
+
+Each item is located by grade, unit, lesson or section. Teachers open the items free on [AccessIM](https://accessim.org/). The Knowledge Graph holds the item titles and alignments; the item content is gated there. **Copy quiz list** copies the plan as plain text.
+
+Released Smarter Balanced or PARCC/New Meridian items aren't included. Their terms allow classroom use, but not copying the items into another product without permission.
+
 ### Looking ahead (readiness forecast)
 
 The **Looking ahead** tab uses the Coherence Map's "builds towards" links between standards to find clusters that build on the taught clusters in the data. Those are clusters in this grade not yet taught, and clusters in the next grade. It does not predict scores.
