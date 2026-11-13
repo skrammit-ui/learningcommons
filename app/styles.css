@@ -96,6 +96,9 @@ pre { background: var(--surface-2); padding: 10px 12px; border-radius: 8px; over
 }
 .settings-grid input { width: 90px; display: inline-block; }
 
+td .frac { display: block; font-size: .7rem; opacity: .8; font-variant-numeric: tabular-nums; }
+table.heat td { font-variant-numeric: tabular-nums; }
+.linkbtn { font: inherit; background: none; border: none; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; font-weight: 600; }
 .check { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
 .group.aside { border-style: dashed; }
 .results-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 24px; }

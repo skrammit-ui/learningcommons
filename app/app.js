@@ -7,7 +7,7 @@
 
   const KG = window.KG_DATA;
   const GRADE_ORDER = ["K", "1", "2", "3", "4", "5", "6", "7", "8"];
-  const state = { data: null, result: null, overrides: {} };
+  const state = { data: null, result: null, overrides: {}, sources: {} };
 
   // ---------- helpers ----------
   const $ = (sel) => document.querySelector(sel);
@@ -113,8 +113,8 @@
     return pct ? v : v; // scale decided per column later
   }
 
-  // Turn rows into { students:[{name, scores:{cluster: value}}], clusters, notes }
-  function interpret(rows) {
+  // CSV rows -> { records:[{name, id, scores:{cluster: pct}, meta}], clusters, notes, hasMeta }
+  function interpretCSV(rows) {
     const notes = [];
     if (rows.length < 2) throw new Error("The file needs a header row and at least one student row.");
     const header = rows[0];
@@ -199,38 +199,257 @@
       clusters.forEach((c) => { scores[c] = sc[c] && sc[c].length ? mean(sc[c]) : NaN; });
       return { name, scores, meta: meta[name] || {} };
     });
+    const metaFound = Object.keys(metaCols).filter((k) => k !== "id").map((k) => header[metaCols[k]]);
+    if (metaFound.length) notes.push({ type: "ok", text: `Also read ${metaFound.map(esc).join(" and ")}; they're shown next to each student.` });
+    const rolled = Object.keys(clusterStandards);
+    if (rolled.length) notes.push({ type: "ok", text: `Standard-level columns were averaged into their clusters (${rolled.join(", ")}).` });
+    return {
+      records: list.map((s) => ({ ...s, id: s.meta.id || "" })),
+      clusters,
+      notes,
+      hasMeta: { level: "level" in metaCols, scale: "scale" in metaCols },
+    };
+  }
+
+  // Shared last step for any source: drop empty rows, set aside all-zero students, add notes.
+  function finalize({ records: list, clusters, notes, hasMeta, hasItems }) {
     const empty = list.filter((s) => clusters.every((c) => !Number.isFinite(s.scores[c])));
-    if (empty.length) notes.push({ type: "warn", text: `Left out ${empty.length} student(s) with no scores: ${empty.map((s) => esc(s.name)).join(", ")}.` });
+    if (empty.length) notes.push({ type: "warn", text: `Left out ${empty.length} student(s) with no math scores: ${empty.map((s) => esc(s.name)).join("; ")}.` });
     const withScores = list.filter((s) => !empty.includes(s));
     // Students with 0% on every cluster almost always didn't take or submit the test.
     const allZero = withScores.filter((s) => clusters.every((c) => !Number.isFinite(s.scores[c]) || s.scores[c] === 0));
     const setAside = $("#zero-aside") ? $("#zero-aside").checked : true;
     const notTested = setAside && allZero.length < withScores.length ? allZero : [];
     if (allZero.length) {
+      // With ISR counts we know these students saw the questions, so don't assume they skipped the test.
+      const sawQuestions = allZero.every((s) => clusters.some((c) => s.items?.[c] > 0));
+      const why = sawQuestions
+        ? "The reports show they saw the questions but got none right, which can mean the test wasn't completed as intended"
+        : "That usually means the test wasn't taken or submitted";
       notes.push({
         type: "warn",
         text: setAside && notTested.length
-          ? `${allZero.length} student(s) scored 0% on every cluster. That usually means the test wasn't taken or submitted, so they're listed separately under "Check these students" and not grouped.`
+          ? `${allZero.length} student(s) scored 0% on every cluster. ${why}, so they're listed separately under "Check these students" and not grouped. Untick the setting below to group them.`
           : `${allZero.length} student(s) scored 0% on every cluster and are included in the groups.`,
       });
     }
     const kept = withScores.filter((s) => !notTested.includes(s));
     if (kept.length < 2) throw new Error("At least two students with scores are needed to form groups.");
 
-    const metaFound = Object.keys(metaCols).filter((k) => k !== "id").map((k) => header[metaCols[k]]);
-    if (metaFound.length) notes.push({ type: "ok", text: `Also read ${metaFound.map(esc).join(" and ")}; they're shown next to each student.` });
     const missing = kept.reduce((n, s) => n + clusters.filter((c) => !Number.isFinite(s.scores[c])).length, 0);
-    if (missing) notes.push({ type: "warn", text: `${missing} blank score(s). Blanks are filled with the class average for grouping only and shown as "—".` });
-    const rolled = Object.keys(clusterStandards);
-    if (rolled.length) notes.push({ type: "ok", text: `Standard-level columns were averaged into their clusters (${rolled.join(", ")}).` });
-    return { students: kept, notTested, clusters, hasMeta: { level: "level" in metaCols, scale: "scale" in metaCols }, notes };
+    if (missing) {
+      notes.push({ type: "warn", text: hasItems
+        ? `${missing} cluster result(s) are blank or had no questions for that student. They're shown as "—" and filled with the class average for grouping only.`
+        : `${missing} blank score(s). Blanks are filled with the class average for grouping only and shown as "—".` });
+    }
+    return { students: kept, notTested, clusters, hasMeta, hasItems: !!hasItems, notes };
+  }
+
+  // Kept for tests and simple callers: CSV text rows -> finished class data.
+  function interpret(rows) { return finalize(interpretCSV(rows)); }
+
+  // ---------- ISR PDF (PRoPL Individual Student Reports) ----------
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error("The PDF reader couldn't be loaded. Check your internet connection, or use the CSV export."));
+      document.head.appendChild(s);
+    });
+  }
+  async function pdfLib() {
+    if (window.pdfjsLib) return window.pdfjsLib;
+    const base = window.PDFJS_BASE || "vendor/pdfjs/";
+    // Loading the worker as a plain script makes pdf.js run on the page itself, which also works from disk.
+    if (!globalThis.pdfjsWorker) await loadScript(base + "pdf.worker.min.js");
+    await loadScript(base + "pdf.min.js");
+    if (!window.pdfjsLib) throw new Error("The PDF reader didn't start.");
+    return window.pdfjsLib;
+  }
+
+  // Rebuild lines of text from positioned PDF text. Wide gaps become runs of spaces, like a table.
+  async function pdfToText(buffer) {
+    const lib = await pdfLib();
+    const doc = await lib.getDocument({ data: buffer, isEvalSupported: false }).promise;
+    const pages = [];
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      const tc = await page.getTextContent();
+      const items = tc.items.filter((it) => it.str && it.str.trim())
+        .map((it) => ({ s: it.str, x: it.transform[4], y: it.transform[5], w: it.width, h: Math.abs(it.transform[3]) || 10 }));
+      const lines = [];
+      items.sort((a, b) => b.y - a.y || a.x - b.x).forEach((it) => {
+        const line = lines.find((l) => Math.abs(l.y - it.y) <= Math.max(2, it.h * 0.35));
+        if (line) line.items.push(it); else lines.push({ y: it.y, items: [it] });
+      });
+      pages.push(lines.sort((a, b) => b.y - a.y).map((l) => {
+        let out = "", end = null;
+        l.items.sort((a, b) => a.x - b.x).forEach((it) => {
+          if (end != null) {
+            const gap = it.x - end;
+            out += gap > it.h * 1.2 ? "   " : gap > it.h * 0.15 && !/\s$/.test(out) ? " " : "";
+          }
+          out += it.s;
+          end = it.x + it.w;
+        });
+        return out;
+      }).join("\n"));
+      page.cleanup();
+    }
+    await doc.destroy();
+    return pages.join("\n");
+  }
+
+  const words = (s) => String(s).toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+  // ISRs name clusters by description. Match against the cluster's own wording, or a standard's
+  // (PRoPL sometimes uses a standard's text, e.g. 6.SP.B.4 for 6.SP.B), within the student's grade.
+  function matchTopic(desc, grade) {
+    const dw = words(desc);
+    let best = null, score = 0;
+    const consider = (cluster, text) => {
+      const cw = words(text);
+      let k = 0;
+      while (k < dw.length && k < cw.length && dw[k] === cw[k]) k++;
+      const prefix = k >= 3 ? k / Math.min(dw.length, cw.length) : 0;
+      const set = new Set(cw);
+      const overlap = (2 * dw.filter((w) => set.has(w)).length) / (dw.length + cw.length);
+      const s = Math.max(prefix, overlap * 0.95);
+      if (s > score) { score = s; best = cluster; }
+    };
+    Object.entries(KG.clusters).forEach(([code, c]) => { if (c.g === grade) consider(code, c.d); });
+    Object.values(KG.standards).forEach((st) => { if (st.g === grade) consider(st.cl, st.d); });
+    return score >= 0.6 ? best : null;
+  }
+
+  function parseISRText(text) {
+    const notes = [], records = [], noMath = [], unmatched = new Set();
+    const blocks = text.split(/(?=^\s*Student:)/m).filter((b) => /^\s*Student:/.test(b));
+    if (!blocks.length) throw new Error("This PDF doesn't look like PRoPL Individual Student Reports: no \"Student:\" headers were found.");
+    const clusters = [];
+    let testName = "";
+    blocks.forEach((b) => {
+      const h = b.match(/Student:\s*(.+?)\s+ID:\s*(\S+)\s+Grade:\s*(\S+)/);
+      if (!h) return;
+      const name = h[1].trim(), id = h[2];
+      let grade = h[3].replace(/^0+(?=\d)/, "").toUpperCase();
+      if (grade === "0" || grade === "KG") grade = "K";
+      const det = b.search(/Math Test Details/);
+      if (det < 0) { noMath.push(name); return; }
+      testName ||= (b.match(/Test:\s*(PRoPL[^\n]*?Math)\b/) || [])[1] || "";
+      const tc = b.indexOf("Topics Covered", det);
+      if (tc < 0) { noMath.push(name); return; }
+      const after = b.slice(tc + 14);
+      const stop = after.search(/Test Details/);
+      const section = stop >= 0 ? after.slice(0, stop) : after;
+      const topics = [];
+      let buf = [];
+      section.split("\n").forEach((line) => {
+        if (/Topics Covered|Item\s+Percent|^\s*Count\s+Correct\s*$/i.test(line)) return;
+        const r = line.match(/^(.*?)\s+(\d+)\s+(\d+(?:\.\d+)?)\s*%\s*$/);
+        if (r) {
+          buf.push(r[1].trim());
+          topics.push({ desc: buf.join(" ").trim(), items: Number(r[2]), pct: Number(r[3]) });
+          buf = [];
+        } else if (line.trim()) {
+          if (topics.length && !buf.length) topics[topics.length - 1].desc += " " + line.trim();
+          else buf.push(line.trim());
+        }
+      });
+      if (!topics.length) { noMath.push(name); return; }
+      const scores = {}, items = {}, correct = {};
+      topics.forEach((t) => {
+        const c = matchTopic(t.desc, grade);
+        if (!c) { unmatched.add(t.desc.slice(0, 80)); return; }
+        if (!clusters.includes(c)) clusters.push(c);
+        items[c] = (items[c] || 0) + t.items;
+        correct[c] = (correct[c] || 0) + Math.round((t.pct * t.items) / 100);
+      });
+      Object.keys(items).forEach((c) => { scores[c] = items[c] > 0 ? (100 * correct[c]) / items[c] : NaN; });
+      const tail = b.slice(det);
+      const sc = tail.match(/(\d{3,4})\s*±\s*[\d.]+\s+Level\s*(\d)/) || b.match(/SCALE SCORE\s+(\d{3,4})\s+\d?\s*Level\s*(\d)/);
+      records.push({ name, id, scores, items, meta: { id, level: sc ? `Level ${sc[2]}` : "", scale: sc ? sc[1] : "" } });
+    });
+    if (!records.length) throw new Error("No math results were found in this PDF. It may only contain Reading reports.");
+    notes.push({ type: "ok", text: `Read ${records.length} math report(s)${testName ? ` from ${esc(testName)}` : ""}, including how many questions each student saw per cluster.` });
+    if (noMath.length) notes.push({ type: "warn", text: `${noMath.length} report(s) had no math results (for example, Reading only) and were skipped: ${noMath.map(esc).join("; ")}.` });
+    if (unmatched.size) notes.push({ type: "warn", text: `Couldn't match these report topics to a Common Core cluster, so they were skipped: ${[...unmatched].map(esc).join("; ")}.` });
+    const hasLevel = records.some((r) => r.meta.level);
+    return { records, clusters, notes, hasMeta: { level: hasLevel, scale: records.some((r) => r.meta.scale) }, hasItems: true };
+  }
+
+  // Join CSV and ISR records by student ID (or name), so the CSV roster gains question counts.
+  function combineSources() {
+    const { csv, isr } = state.sources;
+    if (!csv && !isr) return null;
+    if (!csv || !isr) {
+      const one = csv || isr;
+      return finalize({ ...one, notes: [...one.notes] });
+    }
+    const notes = [...csv.notes, ...isr.notes];
+    const key = (r) => (r.id ? `id:${r.id}` : `name:${r.name.toLowerCase().replace(/\s+/g, " ").trim()}`);
+    const merged = new Map();
+    csv.records.forEach((r) => merged.set(key(r), { name: r.name, id: r.id, scores: { ...r.scores }, items: {}, meta: { ...r.meta }, src: "csv" }));
+    const conflicts = [];
+    let unassessed = 0;
+    isr.records.forEach((r) => {
+      const m = merged.get(key(r));
+      if (!m) { merged.set(key(r), { ...r, scores: { ...r.scores }, items: { ...r.items }, meta: { ...r.meta }, src: "isr" }); return; }
+      m.src = "both";
+      m.items = { ...r.items };
+      Object.entries(r.items).forEach(([c, n]) => {
+        const cv = m.scores[c], iv = r.scores[c];
+        if (n === 0) { if (Number.isFinite(cv)) unassessed++; m.scores[c] = NaN; return; }
+        if (Number.isFinite(cv) && Number.isFinite(iv) && Math.abs(cv - iv) > 1) conflicts.push(`${esc(m.name)} ${c} (CSV ${round(cv)}%, ISR ${round(iv)}%)`);
+        m.scores[c] = iv; // the ISR's percent goes with its question count
+      });
+      ["level", "scale"].forEach((f) => { if (!m.meta[f] && r.meta[f]) m.meta[f] = r.meta[f]; });
+    });
+    const records = [...merged.values()];
+    const both = records.filter((r) => r.src === "both").length;
+    const onlyCsv = records.filter((r) => r.src === "csv");
+    const onlyIsr = records.filter((r) => r.src === "isr");
+    notes.unshift({ type: "ok", text: `Matched ${both} student(s) across the CSV and ISR by ID.` });
+    if (onlyCsv.length) notes.push({ type: "warn", text: `${onlyCsv.length} student(s) are in the CSV but have no ISR math report, so question counts aren't shown for them: ${onlyCsv.map((r) => esc(r.name)).join("; ")}.` });
+    if (onlyIsr.length) notes.push({ type: "warn", text: `${onlyIsr.length} student(s) have an ISR math report but aren't in the CSV. They were added from the ISR: ${onlyIsr.map((r) => esc(r.name)).join("; ")}.` });
+    if (conflicts.length) notes.push({ type: "warn", text: `The CSV and ISR disagree on ${conflicts.length} score(s); the ISR values were used: ${conflicts.slice(0, 6).join("; ")}${conflicts.length > 6 ? "…" : ""}.` });
+    if (unassessed) notes.push({ type: "ok", text: `${unassessed} CSV score(s) were for clusters where the ISR shows the student saw no questions. They're treated as not assessed instead of 0%.` });
+    const clusters = [...csv.clusters, ...isr.clusters.filter((c) => !csv.clusters.includes(c))];
+    return finalize({
+      records, clusters, notes, hasItems: true,
+      hasMeta: { level: csv.hasMeta.level || isr.hasMeta.level, scale: csv.hasMeta.scale || isr.hasMeta.scale },
+    });
   }
 
   // ---------- grouping (k-means on cluster scores) ----------
   function prepareMatrix(data) {
-    const colMean = {};
-    data.clusters.forEach((c) => { colMean[c] = mean(data.students.map((s) => s.scores[c]).filter(Number.isFinite)); });
-    return data.students.map((s) => data.clusters.map((c) => (Number.isFinite(s.scores[c]) ? s.scores[c] : colMean[c])));
+    const colMean = {}, weight = {};
+    data.clusters.forEach((c) => {
+      colMean[c] = mean(data.students.map((s) => s.scores[c]).filter(Number.isFinite));
+      weight[c] = 1;
+    });
+    // With question counts (ISR), clusters measured by more questions count for more,
+    // since a score from 4 questions is steadier than one from 1.
+    if (data.hasItems) {
+      const avgItems = {};
+      data.clusters.forEach((c) => { avgItems[c] = mean(data.students.map((s) => s.items?.[c]).filter((n) => n > 0)); });
+      const overall = mean(Object.values(avgItems).filter(Number.isFinite));
+      data.clusters.forEach((c) => { if (Number.isFinite(avgItems[c]) && overall) weight[c] = Math.sqrt(avgItems[c] / overall); });
+    }
+    return data.students.map((s) => data.clusters.map((c) => (Number.isFinite(s.scores[c]) ? s.scores[c] : colMean[c]) * weight[c]));
+  }
+
+  // "9 of 16 correct, 56%" when question counts are known, otherwise "group average 56%".
+  function groupScore(g, c) {
+    const t = g.tally?.[c];
+    return t ? `${t.k} of ${t.n} questions correct, ${round(g.means[c])}%` : `group average ${round(g.means[c])}%`;
+  }
+
+  // Number correct and number of questions for a student on a cluster, when the ISR gave counts.
+  function counts(s, c) {
+    const n = s.items?.[c];
+    if (!(n > 0) || !Number.isFinite(s.scores[c])) return null;
+    return { k: Math.round((s.scores[c] * n) / 100), n };
   }
   const dist2 = (a, b) => a.reduce((sum, x, i) => sum + (x - b[i]) ** 2, 0);
 
@@ -365,10 +584,21 @@
 
     let groups = Array.from({ length: k }, (_, j) => {
       const members = data.students.filter((_, i) => assign[i] === j);
-      const means = {};
-      data.clusters.forEach((c) => { means[c] = mean(members.map((m) => m.scores[c]).filter(Number.isFinite)); });
+      const means = {}, tally = {};
+      data.clusters.forEach((c) => {
+        const scored = members.filter((m) => Number.isFinite(m.scores[c]));
+        const cs = scored.map((m) => counts(m, c));
+        if (scored.length && cs.every(Boolean)) {
+          // Pool questions: 9 of 16 correct across the group, not an average of percents.
+          const k = cs.reduce((a, x) => a + x.k, 0), n = cs.reduce((a, x) => a + x.n, 0);
+          tally[c] = { k, n };
+          means[c] = (100 * k) / n;
+        } else {
+          means[c] = mean(scored.map((m) => m.scores[c]));
+        }
+      });
       const overall = mean(data.clusters.map((c) => means[c]).filter(Number.isFinite));
-      return { id: j, members, means, overall };
+      return { id: j, members, means, tally, overall };
     }).filter((g) => g.members.length);
 
     groups.sort((a, b) => a.overall - b.overall); // most support first
@@ -438,8 +668,8 @@
         kind: isNeed ? "reteach" : "practice",
         cluster: c,
         title: isNeed
-          ? `Reteach ${c} (group average ${round(g.means[c])}%)`
-          : `Targeted practice on ${c} (group average ${round(g.means[c])}%)`,
+          ? `Reteach ${c} (${groupScore(g, c)})`
+          : `Targeted practice on ${c} (${groupScore(g, c)})`,
         why: [
           info.d,
           feeds.length ? `Start here: ${c} builds toward ${feeds.join(", ")}, which this group also finds hard.` : "",
@@ -459,7 +689,7 @@
         steps.push({
           kind: "extend",
           cluster: c,
-          title: `Extend ${c} (group average ${round(g.means[c])}%)`,
+          title: `Extend ${c} (${groupScore(g, c)})`,
           why: [`Strong in ${c}. The Coherence Map shows where this understanding goes next.`],
           next: nxt,
           lessons: lessonsFor(nxt, 2),
@@ -519,7 +749,7 @@
       const profile = state.data.clusters.map((c) => {
         const b = band(g.means[c], t);
         const delta = g.means[c] - classMean[c];
-        return `<div class="pcell ${b}" title="${esc(clusterInfo(c).d)}"><span>${esc(c)}</span><span>${round(g.means[c])}% <span class="delta">(${delta >= 0 ? "+" : ""}${round(delta)})</span></span></div>`;
+        return `<div class="pcell ${b}" title="${esc(clusterInfo(c).d)}"><span>${esc(c)}</span><span>${round(g.means[c])}%${g.tally?.[c] ? ` <span class="delta">${g.tally[c].k}/${g.tally[c].n}</span>` : ""} <span class="delta">(${delta >= 0 ? "+" : ""}${round(delta)})</span></span></div>`;
       }).join("");
       const distinct = g.distinct.map((x) => `${esc(x.c)} ${x.d >= 0 ? "above" : "below"} class average by ${Math.abs(round(x.d))} pts`).join("; ");
       const insightClusters = [...new Set(g.priorities.map((p) => p.c).concat(g.priorities.length ? [] : g.strengths.slice(0, 2)))].slice(0, 4);
@@ -546,7 +776,7 @@
       </article>`;
     }).join("") + (state.data.notTested.length ? `<article class="group aside">
         <div class="group-head"><h3>Check these students</h3><span class="muted small">${state.data.notTested.length} student(s) · not grouped</span></div>
-        <p class="small">These students scored 0% on every cluster. Check whether they took and submitted the test before planning for them. If they did, untick "Set aside students who scored 0%" above to include them.</p>
+        <p class="small">These students scored 0% on every cluster. Check how the test went for them (not submitted, not completed, or a real result) before planning. To group them anyway, untick "Set aside students who scored 0%" above to include them.</p>
         <div class="members">${state.data.notTested.map((m) => `<span class="chip"${metaTitle(m)}>${esc(m.name)}</span>`).join("")}</div>
       </article>` : "");
     $("#tab-groups").querySelectorAll("select[data-student]").forEach((sel) => sel.addEventListener("change", () => {
@@ -581,12 +811,14 @@
     const head = `<tr><th scope="col">Student</th>${extra.map(([, l]) => `<th scope="col">${l}</th>`).join("")}${cl.map((c) => `<th scope="col" title="${esc(clusterInfo(c).d)}">${esc(c)}</th>`).join("")}</tr>`;
     const row = (m) => `<tr><td>${esc(m.name)}</td>${extra.map(([k]) => `<td>${esc(m.meta?.[k] || "")}</td>`).join("")}${cl.map((c) => {
       const v = m.scores[c];
-      return `<td class="${band(v, t)}">${Number.isFinite(v) ? round(v) : "—"}</td>`;
+      const ct = counts(m, c);
+      if (m.items && m.items[c] === 0) return `<td class="none" title="No questions on this cluster">n/a</td>`;
+      return `<td class="${band(v, t)}"${ct ? ` title="${ct.k} of ${ct.n} questions correct"` : ""}>${Number.isFinite(v) ? round(v) : "—"}${ct ? `<span class="frac">${ct.k}/${ct.n}</span>` : ""}</td>`;
     }).join("")}</tr>`;
     const body = groups.map((g) => `<tr class="grp"><td colspan="${ncol}">Group ${g.num}: ${esc(g.label)}</td></tr>` + g.members.map(row).join("")).join("") +
       (d.notTested.length ? `<tr class="grp"><td colspan="${ncol}">Set aside: 0% on every cluster</td></tr>` + d.notTested.map(row).join("") : "");
     const avg = `<tr class="grp"><td>Average (grouped)</td>${extra.map(() => "<td></td>").join("")}${cl.map((c) => `<td class="${band(classMean[c], t)}">${round(classMean[c])}</td>`).join("")}</tr>`;
-    $("#tab-heatmap").innerHTML = `<div class="legend">${["prof", "app", "need"].map((b) => `<span class="band ${b}">${BAND_LABEL[b]}</span>`).join("")}<span class="muted">Cells show percent scores. "—" means no score.</span></div>
+    $("#tab-heatmap").innerHTML = `<div class="legend">${["prof", "app", "need"].map((b) => `<span class="band ${b}">${BAND_LABEL[b]}</span>`).join("")}<span class="muted">Cells show percent scores${d.hasItems ? ", with questions correct out of questions seen below" : ""}. "—" means no score${d.hasItems ? "; n/a means the student saw no questions on that cluster" : ""}.</span></div>
       <div class="table-wrap"><table class="heat"><thead>${head}</thead><tbody>${body}${avg}</tbody></table></div>`;
   }
 
@@ -600,7 +832,7 @@
         state.data.students.forEach((s) => bands[band(s.scores[c], t)].push(s));
         const n = state.data.students.length;
         const pct = (b) => (bands[b].length / n) * 100;
-        const list = (b) => bands[b].sort((x, y) => x.scores[c] - y.scores[c]).map((s) => `${esc(s.name)} <span class="muted">${round(s.scores[c])} · G${groupOf[s.name]}</span>`).join("<br>") || "<span class=\"muted\">None</span>";
+        const list = (b) => bands[b].sort((x, y) => x.scores[c] - y.scores[c]).map((s) => { const ct = counts(s, c); return `${esc(s.name)} <span class="muted">${ct ? `${ct.k}/${ct.n}` : round(s.scores[c])} · G${groupOf[s.name]}</span>`; }).join("<br>") || "<span class=\"muted\">None</span>";
         return `<div class="cl-card">
           <div class="group-head"><h3>${esc(c)}</h3><span class="band ${band(classMean[c], t)}">Class average ${round(classMean[c])}%</span></div>
           <p class="small">${esc(clusterInfo(c).d)}</p>
@@ -627,21 +859,55 @@
     $("#results").hidden = false;
   }
 
-  function load(text, label, scroll = true) {
-    state.raw = { text, label };
+  // Rebuild the class from whatever sources are loaded (CSV, ISR or both).
+  function rebuild(scroll = true, extraNotes = []) {
+    const { csv, isr } = state.sources;
+    const used = [csv && `${esc(csv.label)} (CSV)`, isr && `${esc(isr.label)} (ISR PDF)`].filter(Boolean);
+    const restart = used.length ? ` <button id="clear" class="linkbtn" type="button">Start over</button>` : "";
     try {
-      const data = interpret(parseCSV(text));
+      const data = combineSources();
+      if (!data) return;
       state.data = data;
       const total = data.students.length + data.notTested.length;
-      renderMessages([{ type: "ok", text: `Loaded ${esc(label)}: ${total} students, ${data.clusters.length} clusters.` }, ...data.notes]);
+      const hint = csv && !isr ? " Add the ISR PDF to see how many questions each student saw per cluster." : isr && !csv ? " You can also add the CSV export." : "";
+      renderMessages([{ type: "ok", text: `Using ${used.join(" + ")}: ${total} students, ${data.clusters.length} clusters.${hint}${restart}` }, ...extraNotes, ...data.notes]);
       run(true);
       if (scroll) $("#results").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
       state.data = null;
       $("#settings").hidden = true;
       $("#results").hidden = true;
+      renderMessages([...extraNotes, { type: "error", text: `${esc(e.message)}${restart}` }]);
+    }
+  }
+
+  function load(text, label, scroll = true) {
+    try {
+      state.sources = { csv: { ...interpretCSV(parseCSV(text)), label } };
+      rebuild(scroll);
+    } catch (e) {
       renderMessages([{ type: "error", text: esc(e.message) }]);
     }
+  }
+
+  async function addFiles(files) {
+    const errors = [];
+    for (const f of [...files]) {
+      const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf";
+      try {
+        if (isPdf) {
+          renderMessages([{ type: "ok", text: `Reading ${esc(f.name)}… large report files can take a few seconds.` }]);
+          const text = await pdfToText(await f.arrayBuffer());
+          state.sources.isr = { ...parseISRText(text), label: f.name };
+        } else {
+          state.sources.csv = { ...interpretCSV(parseCSV(await f.text())), label: f.name };
+        }
+      } catch (e) {
+        errors.push({ type: "error", text: `${esc(f.name)}: ${esc(e.message)}` });
+      }
+    }
+    if (state.sources.csv || state.sources.isr) rebuild(true, errors);
+    else renderMessages(errors);
   }
 
   function exportCSV() {
@@ -667,19 +933,24 @@
     $("#attribution").innerHTML = KG.meta.attribution.map((a) => `<li>${esc(a)}</li>`).join("");
 
     const file = $("#file"), dz = $("#dropzone");
-    const readFile = (f) => { if (!f) return; const r = new FileReader(); r.onload = () => load(String(r.result), f.name); r.readAsText(f); };
     dz.addEventListener("click", () => file.click());
     dz.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); file.click(); } });
-    file.addEventListener("change", () => { readFile(file.files[0]); file.value = ""; });
+    file.addEventListener("change", () => { const fs = [...file.files]; file.value = ""; addFiles(fs); });
     ["dragenter", "dragover"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("drag"); }));
     ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("drag"); }));
-    dz.addEventListener("drop", (e) => readFile(e.dataTransfer.files[0]));
+    dz.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
+    $("#messages").addEventListener("click", (e) => {
+      if (e.target.id !== "clear") return;
+      state.sources = {}; state.data = null;
+      $("#settings").hidden = true; $("#results").hidden = true;
+      renderMessages([]);
+    });
     $("#sample").addEventListener("click", () => load(window.SAMPLE_CSV, "sample Grade 6 class (fictional PRoPL Interim 1)"));
     $("#format-toggle").addEventListener("click", (e) => {
       const h = $("#format-help"); h.hidden = !h.hidden; e.currentTarget.setAttribute("aria-expanded", String(!h.hidden));
     });
     $("#k").addEventListener("change", () => run(true));
-    $("#zero-aside").addEventListener("change", () => { if (state.raw) load(state.raw.text, state.raw.label, false); });
+    $("#zero-aside").addEventListener("change", () => rebuild(false));
     ["#t-prof", "#t-app"].forEach((s) => $(s).addEventListener("change", () => run(false)));
     $("#export")?.addEventListener("click", exportCSV);
     $("#print")?.addEventListener("click", () => window.print());

@@ -19,9 +19,9 @@
     <section id="upload" class="panel" aria-labelledby="upload-h">
       <h2 id="upload-h">1. Add your class data</h2>
       <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Choose a CSV file or drop one here">
-        <p><strong>Drop a CSV here</strong> or <span class="link">choose a file</span></p>
-        <p class="muted small">Your file is read in this browser only. Student data is never uploaded.</p>
-        <input id="file" type="file" accept=".csv,.tsv,.txt,text/csv" hidden>
+        <p><strong>Drop a PRoPL CSV export, ISR PDF, or both</strong> or <span class="link">choose files</span></p>
+        <p class="muted small">Files are read in this browser only. Student data is never uploaded.</p>
+        <input id="file" type="file" accept=".csv,.tsv,.txt,text/csv,.pdf,application/pdf" multiple hidden>
       </div>
       <div class="row gap">
         <button id="sample" class="btn secondary" type="button">Try sample Grade 6 class</button>
@@ -33,6 +33,7 @@
 Ava R.,85,90,62,48
 Mateo L.,72,55,80,77</pre>
         <ul class="small">
+          <li><strong>PRoPL Individual Student Reports (PDF)</strong> work too, on their own or with the CSV. They add how many questions each student saw on each cluster. Students are matched across the two files by ID.</li>
           <li>Scores can be percents (0–100), decimals (0–1), or fractions like <code>3/5</code>.</li>
           <li>Columns can also be standards (<code>4.NF.B.3</code> or <code>4.NF.3</code>); they're averaged into their cluster.</li>
           <li>Headers can include extra text, e.g. <code>4.NF.B Build fractions from unit fractions</code>.</li>
@@ -58,7 +59,7 @@ Mateo L.,72,55,80,77</pre>
           <span><input id="t-app" type="number" min="0" max="99" value="60"> %</span>
         </label>
       </div>
-      <label class="check small"><input id="zero-aside" type="checkbox" checked> Set aside students who scored 0% on every cluster (usually didn't take the test)</label>
+      <label class="check small"><input id="zero-aside" type="checkbox" checked> Set aside students who scored 0% on every cluster (often a test that wasn't completed)</label>
       <p class="muted small">Groups are formed from each student's full pattern of cluster scores, so students who struggle with the same clusters land together.</p>
     </section>
 

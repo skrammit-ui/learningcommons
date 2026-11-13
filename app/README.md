@@ -32,6 +32,14 @@ Mateo L.,72,55,80,77
 - Headers may include extra text (`4.NF.B Build fractions…`).
 - "Long" files work too: one row per student per cluster, with `Student`, `Cluster` (or `Standard`) and `Score` columns.
 - **PRoPL interim exports** load as-is. Performance Level and Scale Score are shown next to each student. The other report columns (Quantile, RC1–RC4, National Norm) are skipped. `sample-data/propl-grade6-interim-sample.csv` is a fictional class in that layout.
+- **PRoPL Individual Student Reports (ISR PDF)** can be dropped in on their own or together with the CSV. The app reads each student's math "Topics Covered" table and matches each topic's description to its Common Core cluster. The table gives the questions seen and percent correct per cluster. With the CSV, students are joined by ID. The app then:
+  - shows "correct/seen" for every score (e.g. `1/2`);
+  - pools group results (e.g. 9 of 16 questions correct) instead of averaging percents;
+  - treats a cluster with no questions as not assessed, not 0%;
+  - gives clusters measured by more questions more weight when forming groups;
+  - flags students who appear in only one file, and any scores the two files disagree on.
+
+  PDFs are read in the browser with the bundled [pdf.js](https://mozilla.github.io/pdf.js/) (`vendor/pdfjs`, Apache-2.0).
 - Students who scored 0% on every cluster usually didn't take or submit the test. They're set aside in a "Check these students" list instead of being grouped. A setting includes them if needed.
 
 ### How the recommendations work
