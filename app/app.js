@@ -7,7 +7,7 @@
 
   const KG = window.KG_DATA;
   const GRADE_ORDER = ["K", "1", "2", "3", "4", "5", "6", "7", "8"];
-  const state = { data: null, result: null, overrides: {}, sources: {}, untaught: new Set() };
+  const state = { data: null, result: null, overrides: {}, sources: {}, untaught: new Set(), through: "" };
 
   // ---------- helpers ----------
   const $ = (sel) => document.querySelector(sel);
@@ -794,6 +794,28 @@
     return out.filter((c) => set.has(c)).map((c) => ({ c, feeds: weak.filter((o) => feeds[o].includes(c)) }));
   }
 
+  // ---------- curriculum layer (optional; Settings → Curriculum awareness) ----------
+  const CURRICULA = window.CURRICULA || {};
+  const curr = () => { const id = $("#curriculum")?.value; return id && id !== "off" ? CURRICULA[id] || null : null; };
+  const currUnits = (c) => curr()?.clusters[c]?.u || null;
+  // "Grade 6, Units 3, 4"
+  function unitsText(c) {
+    const u = currUnits(c);
+    return u ? `${gradeName(clusterInfo(c).g)}, Unit${u.length > 1 ? "s" : ""} ${u.join(", ")}` : "";
+  }
+  const unitTag = (c) => (currUnits(c) ? ` <span class="curr-tag">${esc(curr().short)} ${esc(unitsText(c))}</span>` : "");
+  // The grade most of the class's clusters belong to, and that grade's units in curriculum order.
+  function mainGrade(d) {
+    const n = {};
+    d.allClusters.forEach((c) => { const g = clusterInfo(c).g; n[g] = (n[g] || 0) + 1; });
+    return Object.keys(n).sort((a, b) => n[b] - n[a])[0];
+  }
+  function gradeUnits(d) {
+    const units = new Set();
+    d.allClusters.forEach((c) => (currUnits(c) || []).forEach((u) => units.add(u)));
+    return [...units].sort((a, b) => a - b);
+  }
+
   function nextSteps(g, t) {
     const steps = [];
     const data = state.data;
@@ -983,11 +1005,19 @@
   function renderStep(s) {
     const parts = [`<strong>${esc(s.title)}</strong>`];
     s.why.forEach((w) => parts.push(`<div class="small muted">${esc(w)}</div>`));
+    const cu = curr();
+    if (cu && (s.kind === "reteach" || s.kind === "practice")) {
+      const u = currUnits(s.cluster);
+      const skills = (cu.clusters[s.cluster]?.sk || []).slice(0, 4).map((x) => `${x.t.replace(/\.$/, "")} (Unit ${x.u.join(", ")})`);
+      parts.push(u
+        ? `<div class="small curr-line"><strong>In ${esc(cu.name)}:</strong> revisit ${esc(unitsText(s.cluster))}.${skills.length ? `<ul>${skills.map((k) => `<li>${esc(k)}</li>`).join("")}</ul>` : ""}</div>`
+        : `<div class="small muted">${esc(s.cluster)} isn't listed in the ${esc(cu.name)} alignment guide.</div>`);
+    }
     if (s.lcs?.length) parts.push(`<div class="small">Focus on these learning components:</div><ul>${s.lcs.map((l) => `<li>${esc(l.d)} <span class="muted">(${esc(l.s)})</span></li>`).join("")}</ul>`);
     if (s.weakPre?.length) parts.push(`<div class="small"><strong>Foundational gap:</strong> this group is also low on ${[...new Set(s.weakPre.map((p) => stdInfo(p).cl))].map(esc).join(", ")}, a prerequisite. Address it first.</div>`);
-    if (s.pre?.length) parts.push(`<div class="small">Quick-check prerequisites from earlier grades:</div><ul>${s.pre.map((p) => `<li>${stdLine(p)}</li>`).join("")}</ul>`);
-    if (s.next?.length) parts.push(`<div class="small">Stretch toward:</div><ul>${s.next.map((p) => `<li>${stdLine(p)}</li>`).join("")}</ul>`);
-    if (s.lessons?.length) parts.push(`<div class="small">Aligned lessons:</div><ul>${s.lessons.map((l) => `<li>${esc(lessonText(l))}</li>`).join("")}</ul>`);
+    if (s.pre?.length) parts.push(`<div class="small">Quick-check prerequisites from earlier grades:</div><ul>${s.pre.map((p) => `<li>${stdLine(p)}${unitTag(stdInfo(p).cl)}</li>`).join("")}</ul>`);
+    if (s.next?.length) parts.push(`<div class="small">Stretch toward:</div><ul>${s.next.map((p) => `<li>${stdLine(p)}${unitTag(stdInfo(p).cl)}</li>`).join("")}</ul>`);
+    if (s.lessons?.length) parts.push(`<div class="small">${cu ? "Free supplement, aligned Illustrative Mathematics lessons:" : "Aligned lessons:"}</div><ul>${s.lessons.map((l) => `<li>${esc(lessonText(l))}</li>`).join("")}</ul>`);
     parts.push(`<div class="small"><em>${esc(s.cadence)}</em></div>`);
     return `<li>${parts.join("")}</li>`;
   }
@@ -999,7 +1029,7 @@
     const taught = new Set(d.clusters);
     const extra = [d.hasMeta.level && ["level", "Level"], d.hasMeta.scale && ["scale", "Scale score"], d.hasMeta.norm && ["norm", "National Norm %ile"]].filter(Boolean);
     const ncol = cl.length + 1 + extra.length;
-    const head = `<tr><th scope="col">Student</th>${extra.map(([, l]) => `<th scope="col">${l}</th>`).join("")}${cl.map((c) => `<th scope="col" class="${taught.has(c) ? "" : "untaught"}" title="${esc(clusterInfo(c).d)}">${esc(c)}${taught.has(c) ? "" : `<span class="sub">not yet taught</span>`}</th>`).join("")}</tr>`;
+    const head = `<tr><th scope="col">Student</th>${extra.map(([, l]) => `<th scope="col">${l}</th>`).join("")}${cl.map((c) => `<th scope="col" class="${taught.has(c) ? "" : "untaught"}" title="${esc(clusterInfo(c).d)}">${esc(c)}${currUnits(c) ? `<span class="sub">Unit ${currUnits(c).join(", ")}</span>` : ""}${taught.has(c) ? "" : `<span class="sub">not yet taught</span>`}</th>`).join("")}</tr>`;
     const row = (m) => `<tr><td>${esc(m.name)}</td>${extra.map(([k]) => `<td>${esc(m.meta?.[k] || "")}</td>`).join("")}${cl.map((c) => {
       const v = m.scores[c];
       const ct = counts(m, c);
@@ -1048,13 +1078,30 @@
   function renderTaught() {
     const d = state.data;
     const box = $("#taught");
-    const key = d.allClusters.join("|");
+    const cu = curr();
+    const key = d.allClusters.join("|") + "|" + (cu?.id || "off");
     if (box.dataset.key !== key) {
       box.dataset.key = key;
       box.innerHTML = d.allClusters.map((c) => `<label class="taught-item">
           <input type="checkbox" data-cluster="${esc(c)}"${state.untaught.has(c) ? "" : " checked"}>
-          <span><strong>${esc(c)}</strong> <span class="muted">${esc(clusterInfo(c).d)}</span></span>
+          <span><strong>${esc(c)}</strong>${cu ? (currUnits(c) ? ` <span class="curr-tag">Unit${currUnits(c).length > 1 ? "s" : ""} ${currUnits(c).join(", ")}</span>` : ` <span class="curr-tag">not in guide</span>`) : ""} <span class="muted">${esc(clusterInfo(c).d)}</span></span>
         </label>`).join("");
+    }
+    // Curriculum-aware: "taught through Unit N" sets the ticks from the curriculum's unit order.
+    const wrap = $("#curr-through-wrap"), sel = $("#taught-through");
+    wrap.hidden = !cu;
+    $("#curr-note").hidden = !cu;
+    if (cu) {
+      const units = gradeUnits(d);
+      const want = state.through ?? "";
+      const optKey = cu.id + "|" + units.join(",");
+      if (sel.dataset.key !== optKey) {
+        sel.dataset.key = optKey;
+        sel.innerHTML = `<option value="">Choose…</option>` + units.map((u) => `<option value="${u}">Unit ${u}</option>`).join("");
+      }
+      sel.value = String(want);
+      const fixes = Object.keys(cu.corrected || {}).length;
+      $("#curr-note").textContent = `Uses ${cu.source}: which unit teaches each cluster (${gradeName(mainGrade(d))}).${fixes ? ` ${fixes} standard codes printed in the guide were corrected to match Common Core (for example 6.SP.A.4 is 6.SP.B.4).` : ""} "Taught through" ticks every cluster whose first unit is at or before the unit you pick.`;
     }
     const n = d.allClusters.length - d.allClusters.filter((c) => state.untaught.has(c)).length;
     $("#taught-count").textContent = `${n} of ${d.allClusters.length} ticked`;
@@ -1113,7 +1160,7 @@
           <ul>${[...new Set(tg.links[c].map(([, b]) => b))].map((b) => `<li class="muted">${esc(b)}: ${esc(stdInfo(b).d)}</li>`).join("")}</ul></li>`).join("");
       const pct = (b) => (per.length ? (bands[b].length / per.length) * 100 : 0);
       const html = `<div class="cl-card">
-        <div class="group-head"><h3>${esc(tg.target)} <span class="band none">${KIND[tg.kind]}</span></h3>
+        <div class="group-head"><h3>${esc(tg.target)} <span class="band none">${KIND[tg.kind]}</span>${unitTag(tg.target)}</h3>
           <span class="small muted">${esc(gradeName(clusterInfo(tg.target).g))} · ${esc(domainName(tg.target))}</span></div>
         <p class="small">${esc(clusterInfo(tg.target).d)}</p>
         <p class="small"><strong>Builds on (from your data):</strong> ${tg.feeders.map(esc).join(", ")}${tg.others.length ? ` <span class="muted">· also builds on ${tg.others.map(esc).join(", ")}, which ${tg.others.length === 1 ? "isn't" : "aren't"} in this data or ${tg.others.length === 1 ? "isn't" : "aren't"} ticked as taught</span>` : ""}</p>
@@ -1129,7 +1176,10 @@
       return { tg, risk, html };
     });
     const order = { later: 0, next: 1, assessed: 2 };
-    cards.sort((a, b) => order[a.tg.kind] - order[b.tg.kind] || b.risk - a.risk);
+    // With curriculum awareness, upcoming clusters follow the curriculum's unit order.
+    const firstUnit = (c) => (currUnits(c) ? Math.min(...currUnits(c)) : 99);
+    cards.sort((a, b) => order[a.tg.kind] - order[b.tg.kind] ||
+      (curr() && a.tg.kind === "later" ? firstUnit(a.tg.target) - firstUnit(b.tg.target) : 0) || b.risk - a.risk);
     const section = (kind, title, note) => {
       const cs = cards.filter((c) => c.tg.kind === kind);
       return cs.length ? `<h3 class="ahead-h">${title}</h3><p class="small muted">${note}</p>${cs.map((c) => c.html).join("")}` : "";
@@ -1137,7 +1187,7 @@
     box.innerHTML = `<p class="small">Readiness for upcoming clusters, from each student's results on the taught clusters that the
         <a href="https://achievethecore.org/coherence-map/" target="_blank" rel="noopener">Coherence Map</a> says build toward them.
         It's a heads-up about who may need support, based on your cutoffs (On track ${t.prof}%+, Watch ${t.app}–${t.prof - 1}%, At risk below ${t.app}%), not a prediction of scores.</p>` +
-      section("later", "Later this year", "Clusters in this grade you haven't taught yet.") +
+      section("later", "Later this year", curr() ? `Clusters in this grade you haven't taught yet, in ${esc(curr().name)} unit order.` : "Clusters in this grade you haven't taught yet.") +
       section("next", "Next grade", "Where this year's clusters lead.") +
       section("assessed", "Already assessed: how well does the forecast hold up?", "These clusters are taught and scored, so the forecast can be compared with what actually happened in your class.");
   }
@@ -1150,11 +1200,13 @@
       const r = readiness((c) => g.means[c], (c) => g.tally?.[c]?.n, tg);
       if (!r) return;
       const b = band(r.v, t);
-      if (b !== "prof") found[b].push({ c: tg.target, v: r.v, later: tg.kind === "later" });
+      const u = currUnits(tg.target);
+      const where = u ? ` (${tg.kind === "next" ? `${gradeName(clusterInfo(tg.target).g)} ` : ""}Unit ${u.join(", ")})` : "";
+      if (b !== "prof") found[b].push({ c: tg.target + where, v: r.v, later: tg.kind === "later", unit: u ? Math.min(...u) : 99 });
     });
     // Keep it scannable: this year's clusters first, then the weakest; at most 3 of each.
     const pick = (list) => {
-      list.sort((a, b) => (b.later - a.later) || a.v - b.v);
+      list.sort((a, b) => (b.later - a.later) || (curr() ? a.unit - b.unit : 0) || a.v - b.v);
       const names = list.slice(0, 3).map((x) => x.c);
       if (list.length > 3) names.push(`${list.length - 3} more`);
       return names;
@@ -1164,7 +1216,7 @@
 
   // ---------- remembering a teacher's settings and moves for the same data (this browser only) ----------
   const STORE_PREFIX = "student-grouping-planner:v1:";
-  const DEFAULTS = { k: "auto", prof: "80", app: "60", inc: ["need", "app", "prof"], untaught: [], zeroAside: true };
+  const DEFAULTS = { k: "auto", prof: "80", app: "60", inc: ["need", "app", "prof"], untaught: [], zeroAside: true, curriculum: "off", through: "" };
 
   // Identifies a class's data regardless of file names, upload order or row order.
   function fingerprint(d) {
@@ -1181,6 +1233,7 @@
       k: $("#k").value, prof: $("#t-prof").value, app: $("#t-app").value,
       inc: ["need", "app", "prof"].filter((b) => $(`#inc-${b}`).checked),
       untaught: [...state.untaught], zeroAside: $("#zero-aside").checked,
+      curriculum: $("#curriculum").value, through: state.through ?? "",
     };
   }
   function applySettings(s) {
@@ -1188,6 +1241,8 @@
     ["need", "app", "prof"].forEach((b) => { $(`#inc-${b}`).checked = s.inc.includes(b); });
     state.untaught = new Set(s.untaught);
     $("#zero-aside").checked = s.zeroAside;
+    $("#curriculum").value = CURRICULA[s.curriculum] ? s.curriculum : "off";
+    state.through = s.through ?? "";
     $("#taught").dataset.key = ""; // redraw the cluster checkboxes
   }
   function saveState() {
@@ -1337,6 +1392,18 @@
       const h = $("#format-help"); h.hidden = !h.hidden; e.currentTarget.setAttribute("aria-expanded", String(!h.hidden));
     });
     $("#k").addEventListener("change", () => run(true));
+    $("#curriculum").addEventListener("change", () => { if (curr() == null) state.through = ""; run(false); });
+    $("#taught-through").addEventListener("change", (e) => {
+      if (!state.data) return;
+      const n = e.target.value === "" ? null : Number(e.target.value);
+      state.through = e.target.value;
+      if (n != null) {
+        // Taught if the cluster's first unit is at or before unit n; clusters not in the guide keep their tick.
+        state.untaught = new Set(state.data.allClusters.filter((c) => currUnits(c) && Math.min(...currUnits(c)) > n));
+        $("#taught").querySelectorAll("input[data-cluster]").forEach((el) => { el.checked = !state.untaught.has(el.dataset.cluster); });
+      }
+      run(true);
+    });
     $("#zero-aside").addEventListener("change", () => rebuild(false));
     $("#regroup").addEventListener("click", () => {
       run(true);
@@ -1346,6 +1413,7 @@
       const c = e.target.dataset?.cluster;
       if (!c) return;
       if (e.target.checked) state.untaught.delete(c); else state.untaught.add(c);
+      state.through = "";
       run(true);
     });
     ["all", "none"].forEach((w) => $(`#taught-${w}`).addEventListener("click", () => {

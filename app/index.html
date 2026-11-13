@@ -61,6 +61,18 @@ Mateo L.,72,55,80,77</pre>
           <span><input id="t-app" type="number" min="0" max="99" value="60"> %</span>
         </label>
       </div>
+      <div class="curr-pick">
+        <label>Curriculum awareness
+          <select id="curriculum">
+            <option value="off">Off</option>
+            <option value="reveal">Reveal Math (McGraw Hill)</option>
+          </select>
+        </label>
+        <label id="curr-through-wrap" hidden>Taught through
+          <select id="taught-through"></select>
+        </label>
+        <p id="curr-note" class="small muted" hidden></p>
+      </div>
       <fieldset class="taught-pick">
         <legend>Clusters taught so far</legend>
         <p class="muted small">Untick clusters you haven't taught yet. They're left out of grouping and next steps, and shown greyed out in the heatmap. <span id="taught-count"></span> ·
@@ -115,6 +127,7 @@ Mateo L.,72,55,80,77</pre>
   </footer>
 
   <script src="data/kg-math-k8.js"></script>
+  <script src="data/curriculum-reveal.js"></script>
   <script src="sample-data/propl-grade6-interim-sample.js"></script>
   <script src="app.js"></script>
 </body>

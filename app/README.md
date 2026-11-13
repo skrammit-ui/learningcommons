@@ -52,6 +52,22 @@ Mateo L.,72,55,80,77
   - Prerequisites come from the Coherence Map's "builds towards" links.
   - Learning components and IM lesson alignments come from the Knowledge Graph.
 
+### Curriculum awareness (optional)
+
+**Settings → Curriculum awareness** switches a curriculum layer on or off. **Off** is the curriculum-neutral app. **Reveal Math (McGraw Hill)** adds:
+
+- **Taught through Unit N:** ticks every cluster whose first Reveal unit is at or before N.
+- **Unit tags** on clusters in the settings and heatmap.
+- **Next steps** that name the Reveal grade, unit and skills to revisit for each priority cluster, and where Reveal teaches each earlier-grade prerequisite. IM lessons and the IM follow-up quiz stay, labelled as a free supplement.
+- **Looking ahead** ordered by Reveal's unit sequence. Group cards name the upcoming unit, e.g. "6.EE.A (Unit 6)" or "7.RP.A (Grade 7 Unit 3, 4)".
+
+`data/curriculum-reveal.js` is built from McGraw Hill's *Reveal Math K–8 Scope & Sequence Alignment Guide* by `tools/build_curriculum_reveal.py`. The script reads unit numbers by their position under the grade columns, and checks every standard code against the Knowledge Graph:
+- 8 codes printed in the guide were corrected, e.g. 6.SP.A.4 → 6.SP.B.4.
+- 92 of 93 K–8 clusters are mapped; 3.MD.D isn't in the guide.
+- The guide lists skills by topic, so clusters that share a topic (e.g. 6.SP.A and 6.SP.B) show the same skills.
+
+Another curriculum can be added by writing a similar `window.CURRICULA.<id>` file and adding it to the selector.
+
 ### Same data, same groups
 
 - **Repeatable:** grouping is deterministic. Students are put in a fixed order (by ID, then name), and the same fixed set of starting points is tried each time. So the same class data always gives the same recommended groups, whatever the file names, upload order (CSV or PDF first) or row order. A browser test covers this (repeat uploads, both upload orders, shuffled rows).

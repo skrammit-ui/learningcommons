@@ -1,3 +1,4 @@
+[hidden] { display: none !important; }
 :root {
   --bg: #f7f7f4;
   --surface: #ffffff;
@@ -210,3 +211,10 @@ td.none { color: var(--muted); }
 .quiz-list ul { padding-left: 1.1em; margin: 4px 0; font-size: .92rem; }
 .copy-status { margin-left: 8px; }
 .copy-fallback { display: block; width: 100%; margin-top: 8px; font: .85rem/1.4 ui-monospace, Menlo, monospace; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+.curr-pick { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: flex-end; margin-top: 16px; padding: 12px 14px; border-radius: 8px; background: var(--surface-2); }
+.curr-pick label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: .9rem; }
+.curr-pick select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.curr-pick p { flex-basis: 100%; margin: 0; }
+.curr-tag { display: inline-block; font-size: .72rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: var(--accent-text); vertical-align: 1px; white-space: nowrap; }
+.curr-line { margin: 4px 0; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 6px 6px 0; }
+.curr-line ul { margin: 2px 0 0; }
