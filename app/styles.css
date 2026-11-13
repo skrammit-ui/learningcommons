@@ -203,3 +203,4 @@ td.none { color: var(--muted); }
   details { display: block; }
   details > * { display: block; }
 }
+.ahead-h { margin-top: 20px; }

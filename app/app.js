@@ -552,6 +552,54 @@
     own.forEach((s) => stdInfo(s).pre.forEach((p) => { if (!own.has(p)) out.add(p); }));
     return [...out].sort(codeSort);
   }
+  // ---------- looking ahead (Coherence Map "builds towards" between clusters) ----------
+  // target cluster -> { feeder cluster -> [[fromStandard, toStandard], ...] }
+  let FEEDS = null;
+  function feeds() {
+    if (FEEDS) return FEEDS;
+    FEEDS = {};
+    Object.entries(KG.standards).forEach(([s, st]) => st.next.forEach((n) => {
+      const a = st.cl, b = stdInfo(n).cl;
+      if (a !== b) ((FEEDS[b] ||= {})[a] ||= []).push([s, n]);
+    }));
+    return FEEDS;
+  }
+
+  // Upcoming clusters fed by the taught, assessed clusters: not yet taught this year, or next grade.
+  function upcomingTargets(data) {
+    const taught = new Set(data.clusters);
+    const inFile = new Set(data.allClusters);
+    const maxGrade = Math.max(...data.allClusters.map((c) => gradeIdx(clusterInfo(c).g)));
+    const out = [];
+    Object.entries(feeds()).forEach(([target, from]) => {
+      const feeders = Object.keys(from).filter((c) => taught.has(c));
+      if (!feeders.length || !KG.clusters[target]) return;
+      const g = gradeIdx(clusterInfo(target).g);
+      let kind;
+      if (taught.has(target)) kind = "assessed";
+      else if (inFile.has(target)) kind = "later";
+      else if (g === maxGrade) kind = "later";
+      else if (g === maxGrade + 1) kind = "next";
+      else return;
+      const others = Object.keys(from).filter((c) => !taught.has(c));
+      out.push({ target, kind, feeders, others, links: from });
+    });
+    return out;
+  }
+
+  // A student's (or group's) readiness for a target: feeder scores weighted by number of standard links
+  // (and by questions seen, when the ISR gave counts).
+  function readiness(scoreOf, itemsOf, t) {
+    let num = 0, den = 0, q = 0;
+    t.feeders.forEach((c) => {
+      const v = scoreOf(c);
+      if (!Number.isFinite(v)) return;
+      const w = t.links[c].length * (itemsOf(c) || 1);
+      num += v * w; den += w; q += itemsOf(c) || 0;
+    });
+    return den ? { v: num / den, q } : null;
+  }
+
   function buildsToward(cluster) {
     const own = new Set(clusterInfo(cluster).s);
     const out = new Set();
@@ -809,6 +857,11 @@
           <select aria-label="Move ${esc(m.name)} to another group" data-student="${esc(m.name)}">${opts(g.id)}</select></span>`).join("")}</div>
         <div class="profile">${profile}</div>
         <p class="small"><strong>What sets this group apart:</strong> ${distinct || "—"}.</p>
+        ${(() => {
+          const a = groupAhead(g);
+          if (!a.need.length && !a.app.length) return "";
+          return `<p class="small"><strong>Looking ahead:</strong> ${a.need.length ? `at risk for ${a.need.map(esc).join(", ")}` : ""}${a.need.length && a.app.length ? "; " : ""}${a.app.length ? `watch ${a.app.map(esc).join(", ")}` : ""}. <span class="muted">See the Looking ahead tab.</span></p>`;
+        })()}
         <div class="cols">
           <div>
             <p class="kicker">Recommended next steps</p>
@@ -935,6 +988,90 @@
     flashTimer = setTimeout(() => el.classList.remove("on"), 1500);
   }
 
+  const READY = { prof: "On track", app: "Watch", need: "At risk" };
+  const KIND = { later: "Later this year", next: "Next grade", assessed: "Already assessed (forecast check)" };
+
+  function renderAhead() {
+    const d = state.data, { t, groups } = state.result;
+    const box = $("#tab-ahead");
+    if (!d.clusters.length) { box.innerHTML = `<p class="msg warn">Tick at least one taught cluster to see what's ahead.</p>`; return; }
+    const groupOf = {};
+    groups.forEach((g) => g.members.forEach((m) => { groupOf[m.name] = g.num; }));
+    const students = d.students;
+    const targets = upcomingTargets(d);
+    if (!targets.length) { box.innerHTML = `<p class="small muted">The Coherence Map has no links from the taught clusters to later clusters in this grade or the next one.</p>`; return; }
+
+    const cards = targets.map((tg) => {
+      const per = students.map((s) => ({ s, r: readiness((c) => s.scores[c], (c) => counts(s, c)?.n, tg) })).filter((x) => x.r);
+      const bands = { need: [], app: [], prof: [] };
+      per.forEach((x) => bands[band(x.r.v, t)].push(x));
+      const risk = per.length ? bands.need.length / per.length : 0;
+      // Where the target was itself assessed, compare forecast band with the real band.
+      let check = "";
+      if (tg.kind === "assessed") {
+        const both = per.filter((x) => Number.isFinite(x.s.scores[tg.target]));
+        const agree = both.filter((x) => band(x.r.v, t) === band(x.s.scores[tg.target], t)).length;
+        const close = both.filter((x) => Math.abs(["need", "app", "prof"].indexOf(band(x.r.v, t)) - ["need", "app", "prof"].indexOf(band(x.s.scores[tg.target], t))) <= 1).length;
+        check = both.length ? `<p class="small"><strong>Forecast check:</strong> the forecast matched the actual ${esc(tg.target)} result for ${agree} of ${both.length} students, and was within one level for ${close}.</p>` : "";
+      }
+      const name = (x) => {
+        const limited = x.r.q > 0 && x.r.q < 3 ? " · limited evidence" : "";
+        return `${esc(x.s.name)} <span class="muted">${round(x.r.v)}%${groupOf[x.s.name] ? ` · G${groupOf[x.s.name]}` : ""}${limited}</span>`;
+      };
+      const list = (b) => bands[b].sort((x, y) => x.r.v - y.r.v).map(name).join("<br>") || `<span class="muted">None</span>`;
+      const linkList = tg.feeders.map((c) => `<li><strong>${esc(c)}</strong> → ${esc(tg.target)}: ${tg.links[c].map(([a, b]) => `${esc(a)} → ${esc(b)}`).join(", ")}
+          <ul>${[...new Set(tg.links[c].map(([, b]) => b))].map((b) => `<li class="muted">${esc(b)}: ${esc(stdInfo(b).d)}</li>`).join("")}</ul></li>`).join("");
+      const pct = (b) => (per.length ? (bands[b].length / per.length) * 100 : 0);
+      const html = `<div class="cl-card">
+        <div class="group-head"><h3>${esc(tg.target)} <span class="band none">${KIND[tg.kind]}</span></h3>
+          <span class="small muted">${esc(gradeName(clusterInfo(tg.target).g))} · ${esc(domainName(tg.target))}</span></div>
+        <p class="small">${esc(clusterInfo(tg.target).d)}</p>
+        <p class="small"><strong>Builds on (from your data):</strong> ${tg.feeders.map(esc).join(", ")}${tg.others.length ? ` <span class="muted">· also builds on ${tg.others.map(esc).join(", ")}, which ${tg.others.length === 1 ? "isn't" : "aren't"} in this data or ${tg.others.length === 1 ? "isn't" : "aren't"} ticked as taught</span>` : ""}</p>
+        <div class="bar" aria-hidden="true"><span class="need" style="width:${pct("need")}%"></span><span class="app" style="width:${pct("app")}%"></span><span class="prof" style="width:${pct("prof")}%"></span></div>
+        <div class="bands">
+          <div class="need"><strong>At risk (${bands.need.length})</strong><br>${list("need")}</div>
+          <div class="app"><strong>Watch (${bands.app.length})</strong><br>${list("app")}</div>
+          <div class="prof"><strong>On track (${bands.prof.length})</strong><br>${list("prof")}</div>
+        </div>
+        ${check}
+        <details class="cluster"><summary>Why: the standard-to-standard links</summary><ul class="lc-list">${linkList}</ul></details>
+      </div>`;
+      return { tg, risk, html };
+    });
+    const order = { later: 0, next: 1, assessed: 2 };
+    cards.sort((a, b) => order[a.tg.kind] - order[b.tg.kind] || b.risk - a.risk);
+    const section = (kind, title, note) => {
+      const cs = cards.filter((c) => c.tg.kind === kind);
+      return cs.length ? `<h3 class="ahead-h">${title}</h3><p class="small muted">${note}</p>${cs.map((c) => c.html).join("")}` : "";
+    };
+    box.innerHTML = `<p class="small">Readiness for upcoming clusters, from each student's results on the taught clusters that the
+        <a href="https://achievethecore.org/coherence-map/" target="_blank" rel="noopener">Coherence Map</a> says build toward them.
+        It's a heads-up about who may need support, based on your cutoffs (On track ${t.prof}%+, Watch ${t.app}–${t.prof - 1}%, At risk below ${t.app}%), not a prediction of scores.</p>` +
+      section("later", "Later this year", "Clusters in this grade you haven't taught yet.") +
+      section("next", "Next grade", "Where this year's clusters lead.") +
+      section("assessed", "Already assessed: how well does the forecast hold up?", "These clusters are taught and scored, so the forecast can be compared with what actually happened in your class.");
+  }
+
+  // Group-level "looking ahead": upcoming clusters this group is at risk or on watch for.
+  function groupAhead(g) {
+    const t = state.result.t;
+    const found = { need: [], app: [] };
+    upcomingTargets(state.data).filter((tg) => tg.kind !== "assessed").forEach((tg) => {
+      const r = readiness((c) => g.means[c], (c) => g.tally?.[c]?.n, tg);
+      if (!r) return;
+      const b = band(r.v, t);
+      if (b !== "prof") found[b].push({ c: tg.target, v: r.v, later: tg.kind === "later" });
+    });
+    // Keep it scannable: this year's clusters first, then the weakest; at most 3 of each.
+    const pick = (list) => {
+      list.sort((a, b) => (b.later - a.later) || a.v - b.v);
+      const names = list.slice(0, 3).map((x) => x.c);
+      if (list.length > 3) names.push(`${list.length - 3} more`);
+      return names;
+    };
+    return { need: pick(found.need), app: pick(found.app) };
+  }
+
   function run(resetOverrides) {
     if (!state.data) return;
     if (resetOverrides) state.overrides = {};
@@ -944,6 +1081,7 @@
     renderGroups();
     renderHeatmap();
     renderClusters();
+    renderAhead();
     showSettings(true);
     flashUpdated();
     $("#results").hidden = false;

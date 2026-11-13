@@ -52,6 +52,15 @@ Mateo L.,72,55,80,77
   - Prerequisites come from the Coherence Map's "builds towards" links.
   - Learning components and IM lesson alignments come from the Knowledge Graph.
 
+### Looking ahead (readiness forecast)
+
+The **Looking ahead** tab uses the Coherence Map's "builds towards" links between standards to find clusters that build on the taught clusters in the data. Those are clusters in this grade not yet taught, and clusters in the next grade. It does not predict scores.
+
+- **Students:** each student gets a readiness level for each upcoming cluster: **On track**, **Watch** or **At risk**, using the same cutoffs as the bands. It's a weighted average of their scores on the clusters that feed into that cluster. Feeders with more standard-to-standard links count more, and with the ISR, feeders with more questions count more too.
+- **Groups:** each group card gets a "Looking ahead" line naming the upcoming clusters the group is at risk for.
+- **Forecast check:** where an "upcoming" cluster was itself taught and assessed, the tab compares the forecast with the actual result, so teachers can see how well it holds up in their own class.
+- **Earlier-grade links** that aren't in the data are listed but not used, e.g. 6.G.A builds on 4.MD.A, 5.G.A, 5.MD.C and 5.NF.B.
+
 ## Data
 
 `data/kg-math-k8.js` is a snapshot of the [Learning Commons Knowledge Graph](https://docs.learningcommons.org/knowledge-graph/understanding-knowledge-graph/introduction), limited to Common Core Math K–8:
