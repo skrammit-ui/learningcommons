@@ -92,6 +92,8 @@ pre { background: var(--surface-2); padding: 10px 12px; border-radius: 8px; over
 }
 .settings-grid input { width: 90px; display: inline-block; }
 
+.check { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+.group.aside { border-style: dashed; }
 .results-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 24px; }
 .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 12px 0 16px; }
 .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }

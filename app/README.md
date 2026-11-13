@@ -31,10 +31,12 @@ Mateo L.,72,55,80,77
 - Standard-level columns (`4.NF.B.3` or `4.NF.3`) are averaged into their cluster.
 - Headers may include extra text (`4.NF.B Build fractions…`).
 - "Long" files work too: one row per student per cluster, with `Student`, `Cluster` (or `Standard`) and `Score` columns.
+- **PRoPL interim exports** load as-is. Performance Level and Scale Score are shown next to each student. The other report columns (Quantile, RC1–RC4, National Norm) are skipped. `sample-data/propl-grade6-interim-sample.csv` is a fictional class in that layout.
+- Students who scored 0% on every cluster usually didn't take or submit the test. They're set aside in a "Check these students" list instead of being grouped. A setting includes them if needed.
 
 ### How the recommendations work
 
-- **Groups** come from k-means clustering on the students' cluster scores. A fixed random seed means the same file always gives the same groups. "Auto" picks 2–6 groups by best fit (silhouette score). Teachers can move any student to another group using the dropdown on their name.
+- **Groups** come from k-means clustering on the students' cluster scores. A fixed random seed means the same file always gives the same groups. "Auto" picks 3–5 groups by best fit (silhouette score), or 2–4 for classes under 12 students. In simulated interim data, allowing just 2 groups mostly split "higher" from "lower" students and hid the skill patterns. Teachers can move any student to another group using the dropdown on their name.
 - **Bands** are set by the thresholds in the settings: Proficient (default 80%+), Approaching (60%+) and Needs support.
 - **Next steps** follow fixed rules applied to Knowledge Graph data, with no AI involved:
   - Weak clusters get reteaching (Needs support) or targeted practice (Approaching).
