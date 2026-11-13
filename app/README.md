@@ -15,7 +15,7 @@ Student data stays in the browser. The CSV is read locally and never uploaded.
 
 ## Use it
 
-Open `index.html` in a browser. It works straight from disk; no server or install needed. Click **Try sample Grade 4 class** to see it with fictional data.
+Open `index.html` in a browser. It works straight from disk; no server or install needed. Click **Try sample Grade 6 class** to see it with a fictional class in the PRoPL interim export layout.
 
 ### CSV format
 
@@ -63,4 +63,4 @@ curl -O https://cdn.learningcommons.org/knowledge-graph/v1.17.0/exports/relation
 python3 app/tools/build_kg_snapshot.py --nodes nodes.jsonl --relationships relationships.jsonl --version v1.17.0
 ```
 
-To regenerate the sample class, run `python3 app/tools/make_sample_csv.py`.
+To regenerate the sample class, run `python3 app/tools/make_propl_sample.py`.

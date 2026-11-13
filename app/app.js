@@ -382,8 +382,11 @@
         .filter((x) => Number.isFinite(x.d))
         .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
         .slice(0, 3);
-      g.label = groupLabel(g, data.clusters);
       g.priorities = orderPriorities(g.needs.concat(g.approaching), g);
+      g.label = groupLabel(g, data.clusters);
+      if (g.label === "Broad foundational support" && g.needs.length) {
+        g.label += `, starting with ${g.priorities[0]?.c || g.needs[0]}`;
+      }
       g.steps = nextSteps(g, t);
     });
     state.result = { groups, classMean, t };
@@ -671,7 +674,7 @@
     ["dragenter", "dragover"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("drag"); }));
     ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("drag"); }));
     dz.addEventListener("drop", (e) => readFile(e.dataTransfer.files[0]));
-    $("#sample").addEventListener("click", () => load(window.SAMPLE_CSV, "sample Grade 4 class"));
+    $("#sample").addEventListener("click", () => load(window.SAMPLE_CSV, "sample Grade 6 class (fictional PRoPL Interim 1)"));
     $("#format-toggle").addEventListener("click", (e) => {
       const h = $("#format-help"); h.hidden = !h.hidden; e.currentTarget.setAttribute("aria-expanded", String(!h.hidden));
     });
