@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Student Grouping Planner</title>
+  <meta name="description" content="Group students by performance on Common Core math clusters, see what each cluster contains, and get next steps — powered by the Learning Commons Knowledge Graph.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <h1>Student Grouping Planner</h1>
+      <p class="tagline">Upload cluster scores → get student groups, what each cluster contains, and next steps. Math K–8, Common Core.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="upload" class="panel" aria-labelledby="upload-h">
+      <h2 id="upload-h">1. Add your class data</h2>
+      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Choose a CSV file or drop one here">
+        <p><strong>Drop a CSV here</strong> or <span class="link">choose a file</span></p>
+        <p class="muted small">Your file is read in this browser only. Student data is never uploaded.</p>
+        <input id="file" type="file" accept=".csv,.tsv,.txt,text/csv" hidden>
+      </div>
+      <div class="row gap">
+        <button id="sample" class="btn secondary" type="button">Try sample Grade 4 class</button>
+        <button id="format-toggle" class="btn ghost" type="button" aria-expanded="false" aria-controls="format-help">What should the CSV look like?</button>
+      </div>
+      <div id="format-help" class="format-help" hidden>
+        <p>One row per student. The first column is the student's name or ID. Each other column is a <strong>cluster code</strong> (such as <code>4.NF.B</code>) with the student's score.</p>
+<pre>Student,4.OA.A,4.NBT.B,4.NF.A,4.NF.B
+Ava R.,85,90,62,48
+Mateo L.,72,55,80,77</pre>
+        <ul class="small">
+          <li>Scores can be percents (0–100), decimals (0–1), or fractions like <code>3/5</code>.</li>
+          <li>Columns can also be standards (<code>4.NF.B.3</code> or <code>4.NF.3</code>); they're averaged into their cluster.</li>
+          <li>Headers can include extra text, e.g. <code>4.NF.B Build fractions from unit fractions</code>.</li>
+          <li>A "long" file also works: one row per student per cluster, with columns <code>Student</code>, <code>Cluster</code> (or <code>Standard</code>), <code>Score</code>.</li>
+        </ul>
+      </div>
+      <div id="messages" class="messages" aria-live="polite"></div>
+    </section>
+
+    <section id="settings" class="panel" hidden aria-labelledby="settings-h">
+      <h2 id="settings-h">2. Adjust grouping</h2>
+      <div class="settings-grid">
+        <label>Number of groups
+          <select id="k">
+            <option value="auto">Auto (best fit)</option>
+            <option>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
+          </select>
+        </label>
+        <label>Proficient at or above
+          <span><input id="t-prof" type="number" min="1" max="100" value="80"> %</span>
+        </label>
+        <label>Approaching at or above
+          <span><input id="t-app" type="number" min="0" max="99" value="60"> %</span>
+        </label>
+      </div>
+      <p class="muted small">Groups are formed from each student's full pattern of cluster scores, so students who struggle with the same clusters land together.</p>
+    </section>
+
+    <section id="results" hidden>
+      <div class="results-head">
+        <h2>3. Groups and next steps</h2>
+        <div class="row gap">
+          <button id="export" class="btn secondary" type="button">Download groups (CSV)</button>
+          <button id="print" class="btn ghost" type="button">Print</button>
+        </div>
+      </div>
+      <div id="summary" class="summary"></div>
+      <nav class="tabs" role="tablist">
+        <button role="tab" class="tab" aria-selected="true" data-tab="groups">Groups</button>
+        <button role="tab" class="tab" aria-selected="false" data-tab="heatmap">Class heatmap</button>
+        <button role="tab" class="tab" aria-selected="false" data-tab="clusters">By cluster</button>
+      </nav>
+      <div id="tab-groups" class="tabpanel"></div>
+      <div id="tab-heatmap" class="tabpanel" hidden></div>
+      <div id="tab-clusters" class="tabpanel" hidden></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap small muted">
+      <p>Standards, learning components, learning progressions (Coherence Map) and lesson alignments come from the
+        <a href="https://docs.learningcommons.org/knowledge-graph/understanding-knowledge-graph/introduction" target="_blank" rel="noopener">Learning Commons Knowledge Graph</a>
+        <span id="kg-version"></span>.</p>
+      <details><summary>Data attribution</summary><ul id="attribution"></ul></details>
+    </div>
+  </footer>
+
+  <script src="data/kg-math-k8.js"></script>
+  <script src="sample-data/grade4-cluster-scores.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
