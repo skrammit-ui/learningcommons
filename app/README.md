@@ -31,7 +31,7 @@ Mateo L.,72,55,80,77
 - Standard-level columns (`4.NF.B.3` or `4.NF.3`) are averaged into their cluster.
 - Headers may include extra text (`4.NF.B Build fractions…`).
 - "Long" files work too: one row per student per cluster, with `Student`, `Cluster` (or `Standard`) and `Score` columns.
-- **PRoPL interim exports** load as-is. Performance Level and Scale Score are shown next to each student. The other report columns (Quantile, RC1–RC4, National Norm) are skipped. `sample-data/propl-grade6-interim-sample.csv` is a fictional class in that layout.
+- **PRoPL interim exports** load as-is. Performance Level and Scale Score are shown next to each student. National Norm percentile is shown too, including each group's range and median. The other report columns (Quantile, RC1–RC4) are skipped. `sample-data/propl-grade6-interim-sample.csv` is a fictional class in that layout.
 - **PRoPL Individual Student Reports (ISR PDF)** can be dropped in on their own or together with the CSV. The app reads each student's math "Topics Covered" table and matches each topic's description to its Common Core cluster. The table gives the questions seen and percent correct per cluster. With the CSV, students are joined by ID. The app then:
   - shows "correct/seen" for every score (e.g. `1/2`);
   - pools group results (e.g. 9 of 16 questions correct) instead of averaging percents;

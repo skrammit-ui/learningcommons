@@ -134,11 +134,12 @@
     const META = [
       ["level", /^(performance|achievement|proficiency) level$|^level$/i],
       ["scale", /^scale ?score$/i],
+      ["norm", /^(national norm|national percentile|national norm percentile|math national norm percentile|norm percentile|percentile)$/i],
       ["id", /^(identifier|student id|id|sis id|state id)$/i],
     ];
     const metaCols = {};
     META.forEach(([key, re]) => { const i = header.findIndex((h, j) => j !== nameCol && re.test(h)); if (i >= 0) metaCols[key] = i; });
-    const known = /^(quantile|lexile|national norm|percentile|national percentile|rc\d+|reporting category.*|test|assessment|form|subject)$/i;
+    const known = /^(quantile|lexile|rc\d+|reporting category.*|test|assessment|form|subject)$/i;
 
     let entries = []; // {name, cluster, standard, raw}
     const meta = {};
@@ -200,14 +201,14 @@
       return { name, scores, meta: meta[name] || {} };
     });
     const metaFound = Object.keys(metaCols).filter((k) => k !== "id").map((k) => header[metaCols[k]]);
-    if (metaFound.length) notes.push({ type: "ok", text: `Also read ${metaFound.map(esc).join(" and ")}; they're shown next to each student.` });
+    if (metaFound.length) notes.push({ type: "ok", text: `Also read ${metaFound.map(esc).join(", ").replace(/, ([^,]*)$/, " and $1")}; they're shown next to each student.` });
     const rolled = Object.keys(clusterStandards);
     if (rolled.length) notes.push({ type: "ok", text: `Standard-level columns were averaged into their clusters (${rolled.join(", ")}).` });
     return {
       records: list.map((s) => ({ ...s, id: s.meta.id || "" })),
       clusters,
       notes,
-      hasMeta: { level: "level" in metaCols, scale: "scale" in metaCols },
+      hasMeta: { level: "level" in metaCols, scale: "scale" in metaCols, norm: "norm" in metaCols },
     };
   }
 
@@ -369,14 +370,15 @@
       Object.keys(items).forEach((c) => { scores[c] = items[c] > 0 ? (100 * correct[c]) / items[c] : NaN; });
       const tail = b.slice(det);
       const sc = tail.match(/(\d{3,4})\s*±\s*[\d.]+\s+Level\s*(\d)/) || b.match(/SCALE SCORE\s+(\d{3,4})\s+\d?\s*Level\s*(\d)/);
-      records.push({ name, id, scores, items, meta: { id, level: sc ? `Level ${sc[2]}` : "", scale: sc ? sc[1] : "" } });
+      const norm = b.match(/Math National Norm Percentile\*?\s+(\d{1,2})\b/);
+      records.push({ name, id, scores, items, meta: { id, level: sc ? `Level ${sc[2]}` : "", scale: sc ? sc[1] : "", norm: norm ? norm[1] : "" } });
     });
     if (!records.length) throw new Error("No math results were found in this PDF. It may only contain Reading reports.");
     notes.push({ type: "ok", text: `Read ${records.length} math report(s)${testName ? ` from ${esc(testName)}` : ""}, including how many questions each student saw per cluster.` });
     if (noMath.length) notes.push({ type: "warn", text: `${noMath.length} report(s) had no math results (for example, Reading only) and were skipped: ${noMath.map(esc).join("; ")}.` });
     if (unmatched.size) notes.push({ type: "warn", text: `Couldn't match these report topics to a Common Core cluster, so they were skipped: ${[...unmatched].map(esc).join("; ")}.` });
     const hasLevel = records.some((r) => r.meta.level);
-    return { records, clusters, notes, hasMeta: { level: hasLevel, scale: records.some((r) => r.meta.scale) }, hasItems: true };
+    return { records, clusters, notes, hasMeta: { level: hasLevel, scale: records.some((r) => r.meta.scale), norm: records.some((r) => r.meta.norm) }, hasItems: true };
   }
 
   // Join CSV and ISR records by student ID (or name), so the CSV roster gains question counts.
@@ -404,7 +406,7 @@
         if (Number.isFinite(cv) && Number.isFinite(iv) && Math.abs(cv - iv) > 1) conflicts.push(`${esc(m.name)} ${c} (CSV ${round(cv)}%, ISR ${round(iv)}%)`);
         m.scores[c] = iv; // the ISR's percent goes with its question count
       });
-      ["level", "scale"].forEach((f) => { if (!m.meta[f] && r.meta[f]) m.meta[f] = r.meta[f]; });
+      ["level", "scale", "norm"].forEach((f) => { if (!m.meta[f] && r.meta[f]) m.meta[f] = r.meta[f]; });
     });
     const records = [...merged.values()];
     const both = records.filter((r) => r.src === "both").length;
@@ -418,7 +420,7 @@
     const clusters = [...csv.clusters, ...isr.clusters.filter((c) => !csv.clusters.includes(c))];
     return finalize({
       records, clusters, notes, hasItems: true,
-      hasMeta: { level: csv.hasMeta.level || isr.hasMeta.level, scale: csv.hasMeta.scale || isr.hasMeta.scale },
+      hasMeta: { level: csv.hasMeta.level || isr.hasMeta.level, scale: csv.hasMeta.scale || isr.hasMeta.scale, norm: csv.hasMeta.norm || isr.hasMeta.norm },
     });
   }
 
@@ -851,7 +853,7 @@
       return `<article class="group">
         <div class="group-head">
           <h3>Group ${g.num}: ${esc(g.label)}</h3>
-          <span class="muted small">${g.members.length} student${g.members.length === 1 ? "" : "s"} · average ${round(g.overall)}%</span>
+          <span class="muted small">${g.members.length} student${g.members.length === 1 ? "" : "s"} · average ${round(g.overall)}%${normRange(g.members)}</span>
         </div>
         <div class="members">${g.members.map((m) => `<span class="chip"${metaTitle(m)}>${esc(m.name)}
           <select aria-label="Move ${esc(m.name)} to another group" data-student="${esc(m.name)}">${opts(g.id)}</select></span>`).join("")}</div>
@@ -885,8 +887,17 @@
     }));
   }
 
+  // "National Norm 41–88 (median 64)" for a set of students, when the data has percentiles.
+  function normRange(list) {
+    const v = list.filter((m) => /^\d+(\.\d+)?$/.test(String(m.meta?.norm ?? "").trim())).map((m) => Number(m.meta.norm)).sort((a, b) => a - b);
+    if (!v.length) return "";
+    const med = v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+    const range = v[0] === v[v.length - 1] ? `${v[0]}` : `${v[0]}–${v[v.length - 1]}`;
+    return ` · National Norm percentile ${range}${v[0] !== v[v.length - 1] ? ` (median ${Math.round(med)})` : ""}`;
+  }
+
   function metaTitle(m) {
-    const bits = [m.meta?.level, m.meta?.scale ? `Scale score ${m.meta.scale}` : "", m.meta?.id ? `ID ${m.meta.id}` : ""].filter(Boolean);
+    const bits = [m.meta?.level, m.meta?.scale ? `Scale score ${m.meta.scale}` : "", m.meta?.norm ? `National Norm percentile ${m.meta.norm}` : "", m.meta?.id ? `ID ${m.meta.id}` : ""].filter(Boolean);
     return bits.length ? ` title="${esc(bits.join(" · "))}"` : "";
   }
 
@@ -907,7 +918,7 @@
     const d = state.data;
     const cl = d.allClusters;
     const taught = new Set(d.clusters);
-    const extra = [d.hasMeta.level && ["level", "Level"], d.hasMeta.scale && ["scale", "Scale score"]].filter(Boolean);
+    const extra = [d.hasMeta.level && ["level", "Level"], d.hasMeta.scale && ["scale", "Scale score"], d.hasMeta.norm && ["norm", "National Norm %ile"]].filter(Boolean);
     const ncol = cl.length + 1 + extra.length;
     const head = `<tr><th scope="col">Student</th>${extra.map(([, l]) => `<th scope="col">${l}</th>`).join("")}${cl.map((c) => `<th scope="col" class="${taught.has(c) ? "" : "untaught"}" title="${esc(clusterInfo(c).d)}">${esc(c)}${taught.has(c) ? "" : `<span class="sub">not yet taught</span>`}</th>`).join("")}</tr>`;
     const row = (m) => `<tr><td>${esc(m.name)}</td>${extra.map(([k]) => `<td>${esc(m.meta?.[k] || "")}</td>`).join("")}${cl.map((c) => {
@@ -1111,7 +1122,7 @@
 
   function load(text, label, scroll = true) {
     try {
-      state.sources = { csv: { ...interpretCSV(parseCSV(text)), label } };
+      state.sources = { csv: { ...interpretCSV(parseCSV(text)), label, sample: true } };
       rebuild(scroll);
     } catch (e) {
       renderMessages([{ type: "error", text: esc(e.message) }]);
@@ -1120,6 +1131,8 @@
 
   async function addFiles(files) {
     const errors = [];
+    // Your own files replace the sample class rather than merging with it.
+    if (state.sources.csv?.sample) state.sources = {};
     for (const f of [...files]) {
       const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf";
       try {
