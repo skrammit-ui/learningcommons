@@ -575,15 +575,34 @@
   const lessonText = (l) => `IM 360 ${gradeName(l.g)}${l.u ? `, ${l.u}` : ""}: ${l.o ? `${l.o} – ` : ""}${l.n}`;
 
   // ---------- analysis ----------
+  // A student's overall result: pooled questions when counts are known, else the mean of cluster percents.
+  function studentOverall(s, clusters) {
+    const cs = clusters.map((c) => counts(s, c)).filter(Boolean);
+    if (cs.length) return (100 * cs.reduce((a, x) => a + x.k, 0)) / cs.reduce((a, x) => a + x.n, 0);
+    return mean(clusters.map((c) => s.scores[c]).filter(Number.isFinite));
+  }
+  // Which overall bands the teacher chose to group (all three by default).
+  function includedBands() {
+    return new Set(["need", "app", "prof"].filter((b) => { const el = $(`#inc-${b}`); return !el || el.checked; }));
+  }
+
   function analyze() {
     const data = state.data;
     const t = thresholds();
-    const { k, assign } = group(data, $("#k").value);
+    const inc = includedBands();
+    data.students.forEach((s) => { s.overall = studentOverall(s, data.clusters); s.overallBand = band(s.overall, t); });
+    const pool = data.students.filter((s) => inc.has(s.overallBand));
+    const excluded = data.students.filter((s) => !inc.has(s.overallBand));
     const classMean = {};
-    data.clusters.forEach((c) => { classMean[c] = mean(data.students.map((s) => s.scores[c]).filter(Number.isFinite)); });
+    data.clusters.forEach((c) => { classMean[c] = mean(pool.map((s) => s.scores[c]).filter(Number.isFinite)); });
+    if (pool.length < 2) {
+      state.result = { groups: [], classMean, t, pool, excluded, tooFew: true };
+      return;
+    }
+    const { k, assign } = group({ ...data, students: pool }, $("#k").value);
 
     let groups = Array.from({ length: k }, (_, j) => {
-      const members = data.students.filter((_, i) => assign[i] === j);
+      const members = pool.filter((_, i) => assign[i] === j);
       const means = {}, tally = {};
       data.clusters.forEach((c) => {
         const scored = members.filter((m) => Number.isFinite(m.scores[c]));
@@ -619,7 +638,7 @@
       }
       g.steps = nextSteps(g, t);
     });
-    state.result = { groups, classMean, t };
+    state.result = { groups, classMean, t, pool, excluded };
   }
 
   function groupLabel(g, clusters) {
@@ -732,9 +751,10 @@
     const { groups } = state.result;
     const d = state.data;
     const grades = [...new Set(d.clusters.map((c) => clusterInfo(c).g))].sort((a, b) => gradeIdx(a) - gradeIdx(b));
-    const classAvg = mean(d.clusters.map((c) => state.result.classMean[c]));
+    const classAvg = mean(d.clusters.map((c) => state.result.classMean[c]).filter(Number.isFinite));
     $("#summary").innerHTML = [
-      [d.students.length, "students grouped"],
+      [state.result.pool.length, "students grouped"],
+      ...(state.result.excluded.length ? [[state.result.excluded.length, "not in this grouping"]] : []),
       ...(d.notTested.length ? [[d.notTested.length, "set aside (all 0%)"]] : []),
       [d.clusters.length, `clusters (${grades.map(gradeName).join(", ")})`],
       [groups.length, "groups"],
@@ -743,9 +763,22 @@
   }
 
   function renderGroups() {
-    const { groups, classMean, t } = state.result;
+    const { groups, classMean, t, excluded, tooFew } = state.result;
     const opts = (cur) => groups.map((g) => `<option value="${g.id}"${g.id === cur ? " selected" : ""}>Group ${g.num}</option>`).join("");
-    $("#tab-groups").innerHTML = groups.map((g) => {
+    const BAND_RANGE = { need: `below ${t.app}%`, app: `${t.app}–${t.prof - 1}%`, prof: `${t.prof}%+` };
+    const chosen = [...includedBands()].map((b) => BAND_LABEL[b]).join(" + ");
+    const intro = tooFew
+      ? `<p class="msg warn">Fewer than two students are ${esc(chosen || "selected")} overall, so there's nothing to group. Change "Group these students" above.</p>`
+      : excluded.length ? `<p class="small muted">Grouping ${esc(chosen)} students only, by each student's overall score across all clusters.</p>` : "";
+    const excludedCard = excluded.length ? `<article class="group aside">
+        <div class="group-head"><h3>Not in this grouping</h3><span class="muted small">${excluded.length} student(s)</span></div>
+        <p class="small">Left out by the "Group these students" setting. Overall score shown for each.</p>
+        ${["need", "app", "prof"].filter((b) => excluded.some((s) => s.overallBand === b)).map((b) => `
+          <p class="small"><span class="band ${b}">${BAND_LABEL[b]} (${BAND_RANGE[b]})</span></p>
+          <div class="members">${excluded.filter((s) => s.overallBand === b).sort((x, y) => x.overall - y.overall)
+            .map((m) => `<span class="chip"${metaTitle(m)}>${esc(m.name)} <span class="muted">${round(m.overall)}%</span></span>`).join("")}</div>`).join("")}
+      </article>` : "";
+    $("#tab-groups").innerHTML = intro + groups.map((g) => {
       const profile = state.data.clusters.map((c) => {
         const b = band(g.means[c], t);
         const delta = g.means[c] - classMean[c];
@@ -778,7 +811,7 @@
         <div class="group-head"><h3>Check these students</h3><span class="muted small">${state.data.notTested.length} student(s) · not grouped</span></div>
         <p class="small">These students scored 0% on every cluster. Check how the test went for them (not submitted, not completed, or a real result) before planning. To group them anyway, untick "Set aside students who scored 0%" above to include them.</p>
         <div class="members">${state.data.notTested.map((m) => `<span class="chip"${metaTitle(m)}>${esc(m.name)}</span>`).join("")}</div>
-      </article>` : "");
+      </article>` : "") + excludedCard;
     $("#tab-groups").querySelectorAll("select[data-student]").forEach((sel) => sel.addEventListener("change", () => {
       state.overrides[sel.dataset.student] = Number(sel.value);
       run(false);
@@ -816,6 +849,7 @@
       return `<td class="${band(v, t)}"${ct ? ` title="${ct.k} of ${ct.n} questions correct"` : ""}>${Number.isFinite(v) ? round(v) : "—"}${ct ? `<span class="frac">${ct.k}/${ct.n}</span>` : ""}</td>`;
     }).join("")}</tr>`;
     const body = groups.map((g) => `<tr class="grp"><td colspan="${ncol}">Group ${g.num}: ${esc(g.label)}</td></tr>` + g.members.map(row).join("")).join("") +
+      (state.result.excluded.length ? `<tr class="grp"><td colspan="${ncol}">Not in this grouping</td></tr>` + state.result.excluded.map(row).join("") : "") +
       (d.notTested.length ? `<tr class="grp"><td colspan="${ncol}">Set aside: 0% on every cluster</td></tr>` + d.notTested.map(row).join("") : "");
     const avg = `<tr class="grp"><td>Average (grouped)</td>${extra.map(() => "<td></td>").join("")}${cl.map((c) => `<td class="${band(classMean[c], t)}">${round(classMean[c])}</td>`).join("")}</tr>`;
     $("#tab-heatmap").innerHTML = `<div class="legend">${["prof", "app", "need"].map((b) => `<span class="band ${b}">${BAND_LABEL[b]}</span>`).join("")}<span class="muted">Cells show percent scores${d.hasItems ? ", with questions correct out of questions seen below" : ""}. "—" means no score${d.hasItems ? "; n/a means the student saw no questions on that cluster" : ""}.</span></div>
@@ -832,7 +866,7 @@
         state.data.students.forEach((s) => bands[band(s.scores[c], t)].push(s));
         const n = state.data.students.length;
         const pct = (b) => (bands[b].length / n) * 100;
-        const list = (b) => bands[b].sort((x, y) => x.scores[c] - y.scores[c]).map((s) => { const ct = counts(s, c); return `${esc(s.name)} <span class="muted">${ct ? `${ct.k}/${ct.n}` : round(s.scores[c])} · G${groupOf[s.name]}</span>`; }).join("<br>") || "<span class=\"muted\">None</span>";
+        const list = (b) => bands[b].sort((x, y) => x.scores[c] - y.scores[c]).map((s) => { const ct = counts(s, c); return `${esc(s.name)} <span class="muted">${ct ? `${ct.k}/${ct.n}` : round(s.scores[c])}${groupOf[s.name] ? ` · G${groupOf[s.name]}` : ""}</span>`; }).join("<br>") || "<span class=\"muted\">None</span>";
         return `<div class="cl-card">
           <div class="group-head"><h3>${esc(c)}</h3><span class="band ${band(classMean[c], t)}">Class average ${round(classMean[c])}%</span></div>
           <p class="small">${esc(clusterInfo(c).d)}</p>
@@ -951,7 +985,7 @@
     });
     $("#k").addEventListener("change", () => run(true));
     $("#zero-aside").addEventListener("change", () => rebuild(false));
-    ["#t-prof", "#t-app"].forEach((s) => $(s).addEventListener("change", () => run(false)));
+    ["#t-prof", "#t-app", "#inc-need", "#inc-app", "#inc-prof"].forEach((s) => $(s).addEventListener("change", () => run(false)));
     $("#export")?.addEventListener("click", exportCSV);
     $("#print")?.addEventListener("click", () => window.print());
     document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
