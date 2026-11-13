@@ -52,6 +52,12 @@ Mateo L.,72,55,80,77
   - Prerequisites come from the Coherence Map's "builds towards" links.
   - Learning components and IM lesson alignments come from the Knowledge Graph.
 
+### Same data, same groups
+
+- **Repeatable:** grouping is deterministic. Students are put in a fixed order (by ID, then name), and the same fixed set of starting points is tried each time. So the same class data always gives the same recommended groups, whatever the file names, upload order (CSV or PDF first) or row order. A browser test covers this (repeat uploads, both upload orders, shuffled rows).
+- **Remembered:** settings (clusters taught, bands, cutoffs, number of groups) and students moved by hand are saved in the teacher's own browser, keyed to the class data itself. Uploading the same files again restores them, with a **Reset to the recommended groups** link.
+- **Not shared:** the saved work stays on that device and browser. It isn't shared with other teachers, and clearing the browser's site data removes it.
+
 ### Follow-up quiz
 
 Each group card ends with a **follow-up quiz** for rechecking the group's priority clusters before the next interim. It's built from Illustrative Mathematics v.360 items listed in the Knowledge Graph:

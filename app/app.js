@@ -234,7 +234,12 @@
           : `${allZero.length} student(s) scored 0% on every cluster and are included in the groups.`,
       });
     }
-    const kept = withScores.filter((s) => !notTested.includes(s));
+    // Fixed order (by ID, then name), so the same students always group the same way,
+    // whatever order the files were uploaded in or the rows were exported in.
+    const canon = (a, b) => String(a.id || "").localeCompare(String(b.id || ""), undefined, { numeric: true }) ||
+      a.name.localeCompare(b.name, undefined, { numeric: true });
+    const kept = withScores.filter((s) => !notTested.includes(s)).sort(canon);
+    notTested.sort(canon);
     if (kept.length < 2) throw new Error("At least two students with scores are needed to form groups.");
 
     const missing = kept.reduce((n, s) => n + clusters.filter((c) => !Number.isFinite(s.scores[c])).length, 0);
@@ -488,7 +493,8 @@
 
   function bestKmeans(X, k) {
     let best = null;
-    for (let s = 1; s <= 25; s++) {
+    // Many fixed starting points: finds the best grouping reliably, and the same one every time.
+    for (let s = 1; s <= 100; s++) {
       const r = kmeans(X, k, s * 7919);
       const sizes = new Array(k).fill(0); r.assign.forEach((a) => sizes[a]++);
       if (sizes.some((z) => z === 0)) continue;
@@ -1156,6 +1162,47 @@
     return { need: pick(found.need), app: pick(found.app) };
   }
 
+  // ---------- remembering a teacher's settings and moves for the same data (this browser only) ----------
+  const STORE_PREFIX = "student-grouping-planner:v1:";
+  const DEFAULTS = { k: "auto", prof: "80", app: "60", inc: ["need", "app", "prof"], untaught: [], zeroAside: true };
+
+  // Identifies a class's data regardless of file names, upload order or row order.
+  function fingerprint(d) {
+    const rows = d.students.concat(d.notTested).map((s) => [String(s.id || s.name),
+      d.allClusters.map((c) => (Number.isFinite(s.scores[c]) ? Math.round(s.scores[c]) : null)),
+      s.items ? d.allClusters.map((c) => s.items[c] ?? null) : null]).sort((a, b) => a[0].localeCompare(b[0]));
+    const str = JSON.stringify([d.allClusters.slice().sort(), rows]);
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return `${(h >>> 0).toString(36)}-${str.length.toString(36)}`;
+  }
+  function currentSettings() {
+    return {
+      k: $("#k").value, prof: $("#t-prof").value, app: $("#t-app").value,
+      inc: ["need", "app", "prof"].filter((b) => $(`#inc-${b}`).checked),
+      untaught: [...state.untaught], zeroAside: $("#zero-aside").checked,
+    };
+  }
+  function applySettings(s) {
+    $("#k").value = s.k; $("#t-prof").value = s.prof; $("#t-app").value = s.app;
+    ["need", "app", "prof"].forEach((b) => { $(`#inc-${b}`).checked = s.inc.includes(b); });
+    state.untaught = new Set(s.untaught);
+    $("#zero-aside").checked = s.zeroAside;
+    $("#taught").dataset.key = ""; // redraw the cluster checkboxes
+  }
+  function saveState() {
+    if (!state.data || !state.fp || state.sources.csv?.sample) return;
+    try {
+      localStorage.setItem(STORE_PREFIX + state.fp, JSON.stringify({ savedAt: Date.now(), settings: currentSettings(), overrides: state.overrides }));
+    } catch { /* storage unavailable: nothing to remember */ }
+  }
+  function loadState(fp) {
+    try { return JSON.parse(localStorage.getItem(STORE_PREFIX + fp) || "null"); } catch { return null; }
+  }
+  function forgetState(fp) {
+    try { localStorage.removeItem(STORE_PREFIX + fp); } catch { /* ignore */ }
+  }
+
   function run(resetOverrides) {
     if (!state.data) return;
     if (resetOverrides) state.overrides = {};
@@ -1169,6 +1216,7 @@
     showSettings(true);
     flashUpdated();
     $("#results").hidden = false;
+    saveState();
   }
 
   // Rebuild the class from whatever sources are loaded (CSV, ISR or both).
@@ -1177,13 +1225,32 @@
     const used = [csv && `${esc(csv.label)} (CSV)`, isr && `${esc(isr.label)} (ISR PDF)`].filter(Boolean);
     const restart = used.length ? ` <button id="clear" class="linkbtn" type="button">Start over</button>` : "";
     try {
-      const data = combineSources();
+      let data = combineSources();
       if (!data) return;
+      // Same class data as a saved session in this browser? Bring back its settings and moved students.
+      const fp = fingerprint(data);
+      let restored = null;
+      if (fp !== state.fp) {
+        const saved = csv?.sample ? null : loadState(fp);
+        const zeroBefore = $("#zero-aside").checked;
+        applySettings(saved ? { ...DEFAULTS, ...saved.settings } : { ...DEFAULTS, untaught: [] });
+        state.overrides = saved?.overrides || {};
+        restored = saved;
+        state.restored = saved;
+        // The "set aside 0% students" setting is applied while combining the files, so redo that if it changed.
+        if ($("#zero-aside").checked !== zeroBefore) data = combineSources();
+        state.fp = fp;
+      } else {
+        // Same class data (e.g. the CSV added to an ISR with the same results): keep settings and moves.
+        restored = state.restored;
+      }
       state.data = data;
       const total = data.students.length + data.notTested.length;
       const hint = csv && !isr ? " Add the ISR PDF to see how many questions each student saw per cluster." : isr && !csv ? " You can also add the CSV export." : "";
-      renderMessages([{ type: "ok", text: `Using ${used.join(" + ")}: ${total} students, ${data.clusters.length} clusters.${hint}${restart}` }, ...extraNotes, ...data.notes]);
-      run(true);
+      const moves = restored ? Object.keys(restored.overrides || {}).length : 0;
+      const restoredNote = restored ? [{ type: "ok", text: `Restored the settings${moves ? ` and ${moves} moved student${moves === 1 ? "" : "s"}` : ""} saved in this browser for this class data on ${esc(new Date(restored.savedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }))}. <button id="reset-saved" class="linkbtn" type="button">Reset to the recommended groups</button>` }] : [];
+      renderMessages([{ type: "ok", text: `Using ${used.join(" + ")}: ${total} students, ${data.clusters.length} clusters.${hint}${restart}` }, ...restoredNote, ...extraNotes, ...data.notes]);
+      run(false);
       if (scroll) $("#results").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
       state.data = null;
@@ -1254,8 +1321,14 @@
     ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("drag"); }));
     dz.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
     $("#messages").addEventListener("click", (e) => {
+      if (e.target.id === "reset-saved") {
+        forgetState(state.fp);
+        state.fp = null; state.restored = null; // treat as new data: defaults, no moves
+        rebuild(false);
+        return;
+      }
       if (e.target.id !== "clear") return;
-      state.sources = {}; state.data = null;
+      state.sources = {}; state.data = null; state.fp = null; state.restored = null;
       showSettings(false); $("#results").hidden = true;
       renderMessages([]);
     });
@@ -1291,6 +1364,6 @@
   }
 
   // Expose pure functions for tests.
-  window.GroupingApp = { parseCSV, interpret, matchCode, kmeans, prerequisites, buildsToward };
+  window.GroupingApp = { parseCSV, interpret, matchCode, kmeans, prerequisites, buildsToward, _state: state };
   init();
 })();
