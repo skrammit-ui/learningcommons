@@ -678,8 +678,8 @@
     $("#k").addEventListener("change", () => run(true));
     $("#zero-aside").addEventListener("change", () => { if (state.raw) load(state.raw.text, state.raw.label, false); });
     ["#t-prof", "#t-app"].forEach((s) => $(s).addEventListener("change", () => run(false)));
-    $("#export").addEventListener("click", exportCSV);
-    $("#print").addEventListener("click", () => window.print());
+    $("#export")?.addEventListener("click", exportCSV);
+    $("#print")?.addEventListener("click", () => window.print());
     document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
       document.querySelectorAll(".tabpanel").forEach((p) => { p.hidden = p.id !== `tab-${tab.dataset.tab}`; });
