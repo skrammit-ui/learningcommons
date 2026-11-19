@@ -676,7 +676,6 @@
     const nCd = g.quiz.reduce((n, q) => n + q.cds.length, 0);
     const nCk = g.quiz.filter((q) => q.ck).length;
     return `<div class="quiz">
-      <p class="kicker">Follow-up quiz before the next interim</p>
       <p class="small muted">Recheck this group's priority clusters with Illustrative Mathematics items. Find each one free on
         <a href="https://accessim.org/" target="_blank" rel="noopener">AccessIM</a> by grade, unit and lesson.
         ${nCd} Cool-down${nCd === 1 ? "" : "s"} (about 5 minutes each)${nCk ? ` and ${nCk} Section Checkpoint${nCk === 1 ? "" : "s"}` : ""}.</p>
@@ -842,7 +841,8 @@
         pre: pre.slice(0, 4),
         weakPre,
         lessons,
-        cadence: isNeed ? "Small group, 3× a week for about 20 minutes, using concrete models and visuals first." : "Small group or stations, 2× a week, with short mixed practice and feedback.",
+        cadence: isNeed ? "small group, 3× a week, about 20 min" : "small group or stations, 2× a week",
+        how: isNeed ? "Start with concrete models and visuals." : "Short mixed practice with quick feedback.",
       });
     });
 
@@ -857,7 +857,8 @@
           why: [`Strong in ${c}. The Coherence Map shows where this understanding goes next.`],
           next: nxt,
           lessons: lessonsFor(nxt, 2),
-          cadence: "Independent or partner challenge tasks; invite these students to explain strategies to peers.",
+          cadence: "partner or independent challenge tasks",
+          how: "Invite these students to explain their strategies to peers.",
         });
       });
     }
@@ -928,7 +929,18 @@
           <div class="members">${excluded.filter((s) => s.overallBand === b).sort((x, y) => x.overall - y.overall)
             .map((m) => `<span class="chip"${metaTitle(m)}>${esc(m.name)} <span class="muted">${round(m.overall)}%</span></span>`).join("")}</div>`).join("")}
       </article>` : "";
-    $("#tab-groups").innerHTML = intro + groups.map((g) => {
+    // Overview: every group on one screen, with its first action.
+    const overview = groups.length ? `<div class="table-wrap overview"><table class="ov">
+        <thead><tr><th scope="col">Group</th><th scope="col">Students</th><th scope="col">Focus</th><th scope="col">First step</th></tr></thead>
+        <tbody>${groups.map((g) => {
+          const first = g.steps[0];
+          return `<tr><td><button class="linkbtn jump" type="button" data-jump="${g.id}">Group ${g.num}</button><div class="small muted">${esc(g.label)}</div></td>
+            <td>${g.members.length}</td>
+            <td>${g.priorities.slice(0, 3).map((p) => `<span class="fchip ${band(g.means[p.c], t)}">${esc(p.c)} ${round(g.means[p.c])}%</span>`).join(" ") || `<span class="muted small">All proficient</span>`}</td>
+            <td class="small">${first ? `${VERB[first.kind]} ${esc(first.cluster)}` : "—"}</td></tr>`;
+        }).join("")}</tbody></table></div>` : "";
+
+    $("#tab-groups").innerHTML = intro + overview + groups.map((g) => {
       const profile = state.data.clusters.map((c) => {
         const b = band(g.means[c], t);
         const delta = g.means[c] - classMean[c];
@@ -936,38 +948,39 @@
       }).join("");
       const distinct = g.distinct.map((x) => `${esc(x.c)} ${x.d >= 0 ? "above" : "below"} class average by ${Math.abs(round(x.d))} pts`).join("; ");
       const insightClusters = [...new Set(g.priorities.map((p) => p.c).concat(g.priorities.length ? [] : g.strengths.slice(0, 2)))].slice(0, 4);
-      return `<article class="group">
+      const a = groupAhead(g);
+      const ahead = a.need.length || a.app.length
+        ? `<p class="small ahead-line"><strong>Coming up:</strong> ${a.need.length ? `at risk for ${a.need.map(esc).join(", ")}` : ""}${a.need.length && a.app.length ? "; " : ""}${a.app.length ? `watch ${a.app.map(esc).join(", ")}` : ""}</p>` : "";
+      const nCd = g.quiz.reduce((n, q) => n + q.cds.length, 0), nCk = g.quiz.filter((q) => q.ck).length;
+      const recheck = g.quiz.length ? `<li><span class="act-verb recheck">Recheck</span> <strong>before the next interim</strong> <span class="muted">· ${nCd} Cool-down${nCd === 1 ? "" : "s"}${nCk ? ` + ${nCk} Checkpoint${nCk === 1 ? "" : "s"}` : ""}, listed under Follow-up quiz</span></li>` : "";
+      const focus = g.priorities.slice(0, 3).map((p) => `<span class="fchip ${band(g.means[p.c], t)}" title="${esc(clusterInfo(p.c).d)}">${esc(p.c)} <b>${round(g.means[p.c])}%</b>${g.tally?.[p.c] ? ` <span class="delta">${g.tally[p.c].k}/${g.tally[p.c].n}</span>` : ""}</span>`).join("")
+        || g.strengths.slice(0, 2).map((c) => `<span class="fchip prof">${esc(c)} <b>${round(g.means[c])}%</b></span>`).join("");
+      return `<article class="group" id="grp-${g.id}">
         <div class="group-head">
-          <h3>Group ${g.num}: ${esc(g.label)}</h3>
-          <span class="muted small">${g.members.length} student${g.members.length === 1 ? "" : "s"} · average ${round(g.overall)}%${normRange(g.members)}</span>
+          <div><p class="eyebrow">Group ${g.num} · ${g.members.length} student${g.members.length === 1 ? "" : "s"}</p><h3>${esc(g.label)}</h3></div>
+          <span class="muted small">Average ${round(g.overall)}%${normRange(g.members).replace(" · National Norm percentile", " · Norm %ile")}</span>
         </div>
         <div class="members">${g.members.map((m) => `<span class="chip"${metaTitle(m)}>${esc(m.name)}
           <select aria-label="Move ${esc(m.name)} to another group" data-student="${esc(m.name)}">${opts(g.id)}</select></span>`).join("")}</div>
-        <div class="profile">${profile}</div>
-        <p class="small"><strong>What sets this group apart:</strong> ${distinct || "—"}.</p>
-        ${(() => {
-          const a = groupAhead(g);
-          if (!a.need.length && !a.app.length) return "";
-          return `<p class="small"><strong>Looking ahead:</strong> ${a.need.length ? `at risk for ${a.need.map(esc).join(", ")}` : ""}${a.need.length && a.app.length ? "; " : ""}${a.app.length ? `watch ${a.app.map(esc).join(", ")}` : ""}. <span class="muted">See the Looking ahead tab.</span></p>`;
-        })()}
-        <div class="cols">
-          <div>
-            <p class="kicker">Recommended next steps</p>
-            <ol class="steps">${g.steps.map(renderStep).join("")}</ol>
-          </div>
-          <div>
-            <p class="kicker">Inside the clusters behind this group</p>
-            <p class="small muted">The standards and learning components (smaller teachable skills) that make up each cluster this group was grouped on.</p>
-            ${insightClusters.map((c) => clusterDetails(c)).join("")}
-          </div>
+        <div class="focus-row"><span class="kicker">${g.priorities.length ? "Focus" : "Strengths"}</span>${focus}</div>
+        <p class="kicker">Plan</p>
+        <ol class="actions">${g.steps.map(actionItem).join("")}${recheck}</ol>
+        ${ahead}
+        <div class="more">
+          <details class="more-d"><summary>Teaching details</summary>${g.steps.map(stepDetails).join("")}</details>
+          ${g.quiz.length ? `<details class="more-d"><summary>Follow-up quiz (${nCd} Cool-down${nCd === 1 ? "" : "s"}${nCk ? `, ${nCk} Checkpoint${nCk === 1 ? "" : "s"}` : ""})</summary>${renderQuiz(g)}</details>` : ""}
+          <details class="more-d"><summary>Score profile</summary><div class="profile">${profile}</div><p class="small"><strong>What sets this group apart:</strong> ${distinct || "—"}.</p></details>
+          <details class="more-d"><summary>What's in these clusters</summary><p class="small muted">Standards and learning components (smaller teachable skills) in each cluster this group was grouped on.</p>${insightClusters.map((c) => clusterDetails(c)).join("")}</details>
         </div>
-        ${renderQuiz(g)}
       </article>`;
     }).join("") + (state.data.notTested.length ? `<article class="group aside">
         <div class="group-head"><h3>Check these students</h3><span class="muted small">${state.data.notTested.length} student(s) · not grouped</span></div>
         <p class="small">These students scored 0% on every cluster. Check how the test went for them (not submitted, not completed, or a real result) before planning. To group them anyway, untick "Set aside students who scored 0%" above to include them.</p>
         <div class="members">${state.data.notTested.map((m) => `<span class="chip"${metaTitle(m)}>${esc(m.name)}</span>`).join("")}</div>
       </article>` : "") + excludedCard;
+    $("#tab-groups").querySelectorAll(".jump").forEach((btn) => btn.addEventListener("click", () => {
+      $(`#grp-${btn.dataset.jump}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
     $("#tab-groups").querySelectorAll(".copyquiz").forEach((btn) => btn.addEventListener("click", () => {
       const g = groups.find((x) => String(x.id) === btn.dataset.group);
       const status = btn.nextElementSibling;
@@ -1002,24 +1015,41 @@
     return bits.length ? ` title="${esc(bits.join(" · "))}"` : "";
   }
 
-  function renderStep(s) {
-    const parts = [`<strong>${esc(s.title)}</strong>`];
-    s.why.forEach((w) => parts.push(`<div class="small muted">${esc(w)}</div>`));
+  // First sentence of a long standard description, for compact lists (full text on hover).
+  function shortText(text, max = 110) {
+    const first = String(text).split(/(?<=\.)\s/)[0];
+    return first.length > max ? first.slice(0, max - 1).replace(/\s+\S*$/, "") + "…" : first;
+  }
+  const stdShort = (s) => `<strong>${esc(s)}</strong> <span title="${esc(stdInfo(s).d)}">${esc(shortText(stdInfo(s).d))}</span>`;
+  const VERB = { reteach: "Reteach", practice: "Practice", extend: "Extend" };
+
+  // One scannable line per step: verb, cluster, how often, and where in the curriculum.
+  function actionItem(s) {
     const cu = curr();
-    if (cu && (s.kind === "reteach" || s.kind === "practice")) {
-      const u = currUnits(s.cluster);
+    const unit = cu && currUnits(s.cluster) && s.kind !== "extend" ? ` <span class="curr-tag">${esc(cu.short)} ${esc(unitsText(s.cluster))}</span>` : "";
+    const gap = s.weakPre?.length ? `<div class="small warn-text">First check ${[...new Set(s.weakPre.map((p) => stdInfo(p).cl))].map(esc).join(", ")}: this group is also low on that prerequisite.</div>` : "";
+    const why = s.kind === "extend"
+      ? (s.next?.length ? `<div class="small muted">Stretch toward ${s.next.slice(0, 3).map(esc).join(", ")}.</div>` : "")
+      : (s.why[1] ? `<div class="small muted">${esc(s.why[1].replace(/^Start here: \S+ builds/, "Do this first: it builds"))}</div>` : "");
+    return `<li><span class="act-verb ${s.kind}">${VERB[s.kind]}</span> <strong class="has-tip" title="${esc(clusterInfo(s.cluster).d)}">${esc(s.cluster)}</strong> <span class="muted">· ${esc(s.cadence)}</span>${unit}${why}${gap}</li>`;
+  }
+
+  // Everything a teacher needs to plan the step, kept out of the way until asked for.
+  function stepDetails(s) {
+    const cu = curr();
+    const parts = [`<h4>${VERB[s.kind]} ${esc(s.cluster)} <span class="muted small">${esc(s.title.replace(/^.*?\(/, "(").replace(/^\((.*)\)$/, "$1"))}</span></h4>`];
+    if (cu && s.kind !== "extend") {
       const skills = (cu.clusters[s.cluster]?.sk || []).slice(0, 4).map((x) => `${x.t.replace(/\.$/, "")} (Unit ${x.u.join(", ")})`);
-      parts.push(u
+      parts.push(currUnits(s.cluster)
         ? `<div class="small curr-line"><strong>In ${esc(cu.name)}:</strong> revisit ${esc(unitsText(s.cluster))}.${skills.length ? `<ul>${skills.map((k) => `<li>${esc(k)}</li>`).join("")}</ul>` : ""}</div>`
         : `<div class="small muted">${esc(s.cluster)} isn't listed in the ${esc(cu.name)} alignment guide.</div>`);
     }
-    if (s.lcs?.length) parts.push(`<div class="small">Focus on these learning components:</div><ul>${s.lcs.map((l) => `<li>${esc(l.d)} <span class="muted">(${esc(l.s)})</span></li>`).join("")}</ul>`);
-    if (s.weakPre?.length) parts.push(`<div class="small"><strong>Foundational gap:</strong> this group is also low on ${[...new Set(s.weakPre.map((p) => stdInfo(p).cl))].map(esc).join(", ")}, a prerequisite. Address it first.</div>`);
-    if (s.pre?.length) parts.push(`<div class="small">Quick-check prerequisites from earlier grades:</div><ul>${s.pre.map((p) => `<li>${stdLine(p)}${unitTag(stdInfo(p).cl)}</li>`).join("")}</ul>`);
-    if (s.next?.length) parts.push(`<div class="small">Stretch toward:</div><ul>${s.next.map((p) => `<li>${stdLine(p)}${unitTag(stdInfo(p).cl)}</li>`).join("")}</ul>`);
-    if (s.lessons?.length) parts.push(`<div class="small">${cu ? "Free supplement, aligned Illustrative Mathematics lessons:" : "Aligned lessons:"}</div><ul>${s.lessons.map((l) => `<li>${esc(lessonText(l))}</li>`).join("")}</ul>`);
-    parts.push(`<div class="small"><em>${esc(s.cadence)}</em></div>`);
-    return `<li>${parts.join("")}</li>`;
+    if (s.lcs?.length) parts.push(`<p class="small sub-h">Skills to teach</p><ul class="small">${s.lcs.slice(0, 3).map((l) => `<li>${esc(l.d)} <span class="muted">(${esc(l.s)})</span></li>`).join("")}</ul>`);
+    if (s.pre?.length) parts.push(`<p class="small sub-h">Quick-check prerequisites</p><ul class="small">${s.pre.slice(0, 3).map((p) => `<li>${stdShort(p)}${unitTag(stdInfo(p).cl)}</li>`).join("")}</ul>`);
+    if (s.next?.length) parts.push(`<p class="small sub-h">Stretch toward</p><ul class="small">${s.next.slice(0, 3).map((p) => `<li>${stdShort(p)}${unitTag(stdInfo(p).cl)}</li>`).join("")}</ul>`);
+    if (s.lessons?.length) parts.push(`<p class="small sub-h">${cu ? "Free supplement: IM lessons" : "Lessons (Illustrative Mathematics)"}</p><ul class="small">${s.lessons.slice(0, 3).map((l) => `<li>${esc(lessonText(l))}</li>`).join("")}</ul>`);
+    if (s.how) parts.push(`<p class="small"><em>${esc(s.how)}</em></p>`);
+    return `<div class="step-detail">${parts.join("")}</div>`;
   }
 
   function renderHeatmap() {

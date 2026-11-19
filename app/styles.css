@@ -218,3 +218,42 @@ td.none { color: var(--muted); }
 .curr-tag { display: inline-block; font-size: .72rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: var(--accent-text); vertical-align: 1px; white-space: nowrap; }
 .curr-line { margin: 4px 0; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 6px 6px 0; }
 .curr-line ul { margin: 2px 0 0; }
+
+/* ---- action-first group cards ---- */
+.eyebrow { margin: 0 0 2px; font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.group-head h3 { margin: 0; font-size: 1.15rem; }
+.focus-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 0 4px; }
+.focus-row .kicker { margin: 0 4px 0 0; }
+.fchip { display: inline-flex; align-items: baseline; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: .85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fchip.prof { background: var(--prof-bg); color: var(--prof-fg); }
+.fchip.app { background: var(--app-bg); color: var(--app-fg); }
+.fchip.need { background: var(--need-bg); color: var(--need-fg); }
+.fchip .delta { opacity: .8; font-size: .75rem; }
+.group > .kicker { margin: 14px 0 6px; }
+.actions { margin: 0; padding-left: 1.3em; display: grid; gap: 10px; }
+.actions > li { padding-left: 2px; }
+.act-verb { display: inline-block; min-width: 4.8em; font-size: .75rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.act-verb.reteach { color: var(--need-fg); }
+.act-verb.practice { color: var(--app-fg); }
+.act-verb.extend { color: var(--prof-fg); }
+.act-verb.recheck { color: var(--accent); }
+.warn-text { color: var(--app-fg); }
+.ahead-line { margin: 12px 0 0; padding-top: 10px; border-top: 1px dashed var(--border); }
+.more { margin-top: 12px; display: grid; gap: 6px; }
+.more-d { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; background: var(--surface-2); }
+.more-d > summary { cursor: pointer; font-weight: 600; font-size: .92rem; }
+.more-d[open] { background: var(--surface); }
+.step-detail { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.step-detail:last-child { border-bottom: none; }
+.step-detail h4 { margin: 0 0 6px; font-size: .98rem; }
+.step-detail ul { margin: 2px 0 8px; padding-left: 1.2em; }
+.sub-h { margin: 8px 0 2px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-size: .72rem; }
+.more-d .quiz { margin-top: 6px; padding-top: 0; border-top: none; }
+.overview { margin-bottom: 16px; }
+table.ov { border-collapse: collapse; width: 100%; font-size: .9rem; }
+table.ov th, table.ov td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+table.ov th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+table.ov tr:last-child td { border-bottom: none; }
+table.ov .fchip { margin: 0 4px 4px 0; }
+.jump { font-weight: 700; }
+.has-tip { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
